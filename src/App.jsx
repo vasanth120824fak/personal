@@ -16,6 +16,7 @@ import {
   loadVault,
   loginUser,
   logoutUser,
+  registerUser,
   saveVault,
   uploadDocument,
 } from "./api";
@@ -27,6 +28,7 @@ const searchHint = "Search mother, aadhaar, resume, college email...";
 export default function App() {
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
+  const [authMode, setAuthMode] = useState("login");
   const [userEmail, setUserEmail] = useState("");
   const [vault, setVault] = useState(null);
   const [activeSection, setActiveSection] = useState("personalInfo");
@@ -109,7 +111,13 @@ export default function App() {
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
-      await loginUser(normalizedEmail, pin);
+      if (authMode === "create") {
+        await registerUser(normalizedEmail, pin);
+        showToast("Account created.");
+      } else {
+        await loginUser(normalizedEmail, pin);
+        showToast("Signed in.");
+      }
 
       const payload = await loadVault();
       setVault(payload.vault || createDefaultVault());
@@ -117,7 +125,6 @@ export default function App() {
       setEmail(normalizedEmail);
       setPin("");
       setSessionExpiresAt(Date.now() + 30 * 60 * 1000);
-      showToast("Signed in.");
     } catch (error) {
       showToast(error.message || "Authentication failed.", "error");
     } finally {
@@ -678,6 +685,7 @@ export default function App() {
       setUserEmail("");
       setEmail("");
       setPin("");
+      setAuthMode("login");
       setSearch("");
       setSessionExpiresAt(null);
       showToast("Signed out.");
@@ -718,10 +726,13 @@ export default function App() {
               onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
               required
             />
-              <button className="primary-button" type="submit">
-              Unlock
+            <button className="primary-button" type="submit">
+              {authMode === "create" ? "Create Account" : "Unlock"}
             </button>
           </form>
+          <button className="ghost-button auth-switch" type="button" onClick={() => setAuthMode(authMode === "create" ? "login" : "create")}>
+            {authMode === "create" ? "Already have an account?" : "Create Account"}
+          </button>
         </div>
       </div>
     );
@@ -900,7 +911,7 @@ export default function App() {
             {vault.family.map((member) => (
               <article className="panel" key={member.id}>
                 <div className="panel-header">
-                  <h3>{member.relation}</h3>
+                  <h3>Family Member</h3>
                   <div className="inline-actions">
                     <CopyButton value={JSON.stringify(member, null, 2)} onCopy={copyValue} />
                     <label className="ghost-button upload-button">
@@ -911,7 +922,7 @@ export default function App() {
                         onChange={(event) =>
                           handleFileUpload(event, {
                             kind: "family",
-                            category: `${member.relation} document`,
+                            category: "Family member document",
                             linkedTo: member.id,
                           })
                         }
@@ -929,9 +940,7 @@ export default function App() {
                   </div>
                 </div>
                 <ItemSection
-                  title={member.relation}
                   data={{
-                    relation: member.relation,
                     name: member.name,
                     mobile: member.mobile,
                     email: member.email,
@@ -1339,7 +1348,7 @@ function FieldGrid({ data, editMode, onChange, onCopy, onRemoveField, onRenameFi
   return (
     <div className="field-grid">
       {Object.entries(data)
-        .filter(([field]) => !["customFields", "fieldLabels", "documentIds", "subsections"].includes(field))
+        .filter(([field]) => !["id", "relation", "customFields", "fieldLabels", "documentIds", "subsections"].includes(field))
         .map(([field, value]) => (
           <FieldCard
             key={field}

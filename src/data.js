@@ -136,10 +136,9 @@ export const createDefaultVault = () => ({
   others: [createOtherSection()],
 });
 
-export function createFamilyMember(relation = "Family Member") {
+export function createFamilyMember() {
   return {
     id: createNumericId(),
-    relation,
     name: "",
     mobile: "",
     email: "",
