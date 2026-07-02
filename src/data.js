@@ -8,12 +8,8 @@ export const sectionLabels = {
   socialLinks: "Social Media",
   bankAccounts: "Bank Details",
   documents: "Documents",
-  career: "Career",
   achievements: "Achievements",
   certificates: "Certificates",
-  frequentAnswers: "Frequently Used Answers",
-  accounts: "Accounts",
-  settings: "Settings",
 };
 
 export const createDefaultVault = () => ({
@@ -120,33 +116,8 @@ export const createDefaultVault = () => ({
   },
   bankAccounts: [createBankAccount()],
   documents: [],
-  career: {
-    currentSkills: "",
-    experience: "",
-    projects: "",
-    internships: "",
-    resumeDocumentId: "",
-    customFields: [],
-  },
   achievements: [createAchievement()],
   certificates: [createCertificate()],
-  frequentAnswers: [createAnswer()],
-  accounts: [
-    {
-      id: crypto.randomUUID(),
-      platform: "",
-      username: "",
-      email: "",
-      notes: "",
-      customFields: [],
-    },
-  ],
-  settings: {
-    vaultTitle: "Private Personal Vault",
-    autoLockMinutes: "30",
-    searchHint: "Search mother, aadhaar, resume, college email...",
-    customFields: [],
-  },
 });
 
 export function createFamilyMember(relation = "Family Member") {
@@ -194,15 +165,6 @@ export function createCertificate() {
     name: "",
     issuer: "",
     documentId: "",
-    customFields: [],
-  };
-}
-
-export function createAnswer() {
-  return {
-    id: crypto.randomUUID(),
-    question: "",
-    answer: "",
     customFields: [],
   };
 }

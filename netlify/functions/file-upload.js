@@ -9,7 +9,7 @@ export async function handler(event) {
 
   try {
     const session = verifySession(event);
-    const { name, mimeType, category, linkedTo, data } = readJsonBody(event);
+    const { name, displayName, mimeType, category, linkedTo, data } = readJsonBody(event);
 
     if (!name || !data) {
       return json(400, { error: "File name and data are required." });
@@ -18,6 +18,7 @@ export async function handler(event) {
     const file = await uploadBufferFile({
       userId: session.userId.toString(),
       name,
+      displayName,
       mimeType,
       category,
       linkedTo,

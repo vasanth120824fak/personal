@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   createCustomField,
   createAchievement,
-  createAnswer,
   createBankAccount,
   createCertificate,
   createDefaultVault,
@@ -16,15 +15,15 @@ import {
   loadVault,
   loginUser,
   logoutUser,
-  registerUser,
   saveVault,
   uploadDocument,
 } from "./api";
 
 const sections = Object.entries(sectionLabels);
+const vaultTitle = "Private Personal Vault";
+const searchHint = "Search mother, aadhaar, resume, college email...";
 
 export default function App() {
-  const [authMode, setAuthMode] = useState("signin");
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
   const [userEmail, setUserEmail] = useState("");
@@ -32,6 +31,7 @@ export default function App() {
   const [activeSection, setActiveSection] = useState("personalInfo");
   const [editMode, setEditMode] = useState(false);
   const [status, setStatus] = useState("");
+  const [busyText, setBusyText] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -70,34 +70,31 @@ export default function App() {
 
   async function handleAuthSubmit(event) {
     event.preventDefault();
-    setStatus("");
     setLoading(true);
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
-      if (authMode === "setup") {
-        await registerUser(normalizedEmail, pin);
-      } else {
-        await loginUser(normalizedEmail, pin);
-      }
+      setBusyText("Signing in...");
+      await loginUser(normalizedEmail, pin);
 
       const payload = await loadVault();
       setVault(payload.vault || createDefaultVault());
       setUserEmail(normalizedEmail);
       setEmail(normalizedEmail);
       setPin("");
-      setStatus(authMode === "setup" ? "Account created." : "Signed in.");
+      setStatus("Signed in.");
     } catch (error) {
       setStatus(error.message || "Authentication failed.");
     } finally {
       setLoading(false);
+      setBusyText("");
     }
   }
 
   async function persistVault(nextVault, nextStatus = "Changes saved.") {
     setVault(nextVault);
     setSaving(true);
-    setStatus("");
+    setBusyText("Saving...");
 
     try {
       await saveVault(nextVault);
@@ -106,6 +103,7 @@ export default function App() {
       setStatus(error.message || "Save failed.");
     } finally {
       setSaving(false);
+      setBusyText("");
     }
   }
 
@@ -253,12 +251,18 @@ export default function App() {
       return;
     }
 
-    setStatus("Uploading document...");
-
     try {
+      const fileName = await askForDocumentName(target, file.name);
+      if (!fileName) {
+        event.target.value = "";
+        return;
+      }
+
+      setBusyText("Uploading document...");
       const data = await fileToBase64(file);
       const payload = await uploadDocument({
         name: file.name,
+        displayName: fileName,
         mimeType: file.type,
         category: target.category,
         linkedTo: target.linkedTo,
@@ -267,10 +271,6 @@ export default function App() {
 
       const metadata = payload.file;
       const nextVault = { ...vault, documents: [...vault.documents, metadata] };
-
-      if (target.kind === "careerResume") {
-        nextVault.career = { ...vault.career, resumeDocumentId: metadata.id };
-      }
 
       if (target.kind === "certificate") {
         nextVault.certificates = vault.certificates.map((certificate) =>
@@ -292,27 +292,32 @@ export default function App() {
     } catch (error) {
       setStatus(error.message || "Upload failed.");
     } finally {
+      setBusyText("");
       event.target.value = "";
     }
   }
 
-  async function handleDownload(document) {
+  async function handleDownload(fileRecord) {
     try {
-      const blob = await downloadDocument(document.id);
+      setBusyText("Downloading document...");
+      const blob = await downloadDocument(fileRecord.id);
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
+      const anchor = window.document.createElement("a");
       anchor.href = url;
-      anchor.download = document.name;
+      anchor.download = fileRecord.displayName || fileRecord.name || "download";
       anchor.click();
       URL.revokeObjectURL(url);
       setStatus("Download started.");
     } catch (error) {
       setStatus(error.message || "Download failed.");
+    } finally {
+      setBusyText("");
     }
   }
 
   async function removeDocument(documentId) {
     try {
+      setBusyText("Removing document...");
       await deleteDocument(documentId);
 
       const nextVault = {
@@ -323,10 +328,6 @@ export default function App() {
             ? { ...certificate, documentId: "" }
             : certificate,
         ),
-        career:
-          vault.career.resumeDocumentId === documentId
-            ? { ...vault.career, resumeDocumentId: "" }
-            : vault.career,
         family: vault.family.map((member) => ({
           ...member,
           documentIds: member.documentIds.filter((entryId) => entryId !== documentId),
@@ -336,15 +337,20 @@ export default function App() {
       await persistVault(nextVault, "Document removed.");
     } catch (error) {
       setStatus(error.message || "Delete failed.");
+    } finally {
+      setBusyText("");
     }
   }
 
   async function copyValue(value) {
+    setBusyText("Copying...");
     await navigator.clipboard.writeText(String(value ?? ""));
     setStatus("Copied.");
+    setBusyText("");
   }
 
   async function handleLogout() {
+    setBusyText("Signing out...");
     await logoutUser();
     setVault(null);
     setUserEmail("");
@@ -352,15 +358,14 @@ export default function App() {
     setPin("");
     setSearch("");
     setStatus("Signed out.");
+    setBusyText("");
   }
 
   if (loading) {
     return (
       <div className="auth-shell">
         <div className="auth-card">
-          <p className="eyebrow">Private Vault</p>
-          <h1>Loading your workspace</h1>
-          <p className="subtitle">Checking your secure session.</p>
+          <p className="status-text">Loading...</p>
         </div>
       </div>
     );
@@ -370,44 +375,31 @@ export default function App() {
     return (
       <div className="auth-shell">
         <div className="auth-card">
-          <p className="eyebrow">Private Vault</p>
-          <h1>{authMode === "setup" ? "Create account" : "Sign in with email"}</h1>
-          <p className="subtitle">
-            Enter your email first, then use your 6-digit PIN.
-          </p>
+          {busyText ? <p className="status-text">{busyText}</p> : null}
           <form className="auth-form" onSubmit={handleAuthSubmit}>
-            <label>
-              Email
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                required
-              />
-            </label>
-            <label>
-              6-Digit PIN
-              <input
-                type="password"
-                inputMode="numeric"
-                pattern="\d{6}"
-                maxLength={6}
-                value={pin}
-                onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                required
-              />
-            </label>
+            <input
+              type="email"
+              aria-label="Email"
+              placeholder="Email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+            <input
+              type="password"
+              aria-label="PIN"
+              placeholder="6-digit PIN"
+              inputMode="numeric"
+              pattern="\d{6}"
+              maxLength={6}
+              value={pin}
+              onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              required
+            />
             <button className="primary-button" type="submit">
-              {authMode === "setup" ? "Create Account" : "Continue"}
+              Unlock
             </button>
           </form>
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={() => setAuthMode((mode) => (mode === "setup" ? "signin" : "setup"))}
-          >
-            {authMode === "setup" ? "I already have an account" : "Create a new account"}
-          </button>
           {status ? <p className="status-text">{status}</p> : null}
         </div>
       </div>
@@ -419,14 +411,14 @@ export default function App() {
       <aside className="sidebar">
         <div>
           <p className="eyebrow">Dashboard</p>
-          <h2>{vault.settings.vaultTitle}</h2>
+          <h2>{vaultTitle}</h2>
           <p className="muted">{userEmail}</p>
         </div>
 
         <label className="search-box">
           <span>Search</span>
           <input
-            placeholder={vault.settings.searchHint}
+            placeholder={searchHint}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -450,10 +442,7 @@ export default function App() {
 
       <main className="content">
         <header className="topbar">
-          <div>
-            <p className="eyebrow">Dashboard</p>
-            <h1>{sectionLabels[activeSection]}</h1>
-          </div>
+          <h1>{sectionLabels[activeSection]}</h1>
           <div className="topbar-actions">
             <button className="ghost-button" type="button" onClick={() => setEditMode((value) => !value)}>
               {editMode ? "View Mode" : "Edit Mode"}
@@ -473,6 +462,7 @@ export default function App() {
 
         {status ? <p className="status-banner">{status}</p> : null}
         {saving ? <p className="status-text">Saving to MongoDB...</p> : null}
+        {busyText ? <p className="status-text">{busyText}</p> : null}
 
         {activeSection === "personalInfo" && (
           <ObjectSection
@@ -486,6 +476,7 @@ export default function App() {
               updateCustomFieldInGroup("personalInfo", fieldId, key, value)
             }
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("personalInfo", fieldId)}
+            onFieldRemove={(field) => updateGroup("personalInfo", field, "")}
           />
         )}
 
@@ -501,6 +492,7 @@ export default function App() {
               updateCustomFieldInGroup("contacts", fieldId, key, value)
             }
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("contacts", fieldId)}
+            onFieldRemove={(field) => updateGroup("contacts", field, "")}
           />
         )}
 
@@ -516,6 +508,7 @@ export default function App() {
               updateCustomFieldInGroup("education", fieldId, key, value)
             }
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("education", fieldId)}
+            onFieldRemove={(field) => updateGroup("education", field, "")}
           />
         )}
 
@@ -531,6 +524,7 @@ export default function App() {
               updateCustomFieldInGroup("college", fieldId, key, value)
             }
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("college", fieldId)}
+            onFieldRemove={(field) => updateGroup("college", field, "")}
           />
         )}
 
@@ -546,6 +540,7 @@ export default function App() {
               updateCustomFieldInGroup("governmentIds", fieldId, key, value)
             }
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("governmentIds", fieldId)}
+            onFieldRemove={(field) => updateGroup("governmentIds", field, "")}
           />
         )}
 
@@ -561,21 +556,7 @@ export default function App() {
               updateCustomFieldInGroup("socialLinks", fieldId, key, value)
             }
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("socialLinks", fieldId)}
-          />
-        )}
-
-        {activeSection === "settings" && (
-          <ObjectSection
-            title={sectionLabels.settings}
-            data={vault.settings}
-            editMode={editMode}
-            onChange={(field, value) => updateGroup("settings", field, value)}
-            onCopy={copyValue}
-            onAddField={() => addCustomFieldToGroup("settings")}
-            onCustomFieldChange={(fieldId, key, value) =>
-              updateCustomFieldInGroup("settings", fieldId, key, value)
-            }
-            onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("settings", fieldId)}
+            onFieldRemove={(field) => updateGroup("socialLinks", field, "")}
           />
         )}
 
@@ -617,13 +598,15 @@ export default function App() {
                         }
                       />
                     </label>
-                    <button
-                      className="icon-button danger"
-                      type="button"
-                      onClick={() => removeListItem("family", member.id)}
-                    >
-                      Bin
-                    </button>
+                    {editMode ? (
+                      <button
+                        className="icon-button danger"
+                        type="button"
+                        onClick={() => removeListItem("family", member.id)}
+                      >
+                        🗑
+                      </button>
+                    ) : null}
                   </div>
                 </div>
                 <ItemSection
@@ -648,6 +631,7 @@ export default function App() {
                   onCustomFieldRemove={(fieldId) =>
                     removeCustomFieldFromItem("family", member.id, fieldId)
                   }
+                  onFieldRemove={(field) => updateListItem("family", member.id, field, "")}
                 />
                 <div className="subsection-header">
                   <h4>Bank Accounts</h4>
@@ -667,12 +651,14 @@ export default function App() {
                     onChange={(field, value) => updateNestedBank("family", member.id, bank.id, field, value)}
                     onCopy={copyValue}
                     title={bank.bankName || bank.accountHolder || "Bank Account"}
+                    onFieldRemove={(field) => updateNestedBank("family", member.id, bank.id, field, "")}
                   />
                 ))}
                 <DocumentList
                   documents={vault.documents.filter((entry) => member.documentIds.includes(entry.id))}
                   onDownload={handleDownload}
                   onDelete={removeDocument}
+                  editMode={editMode}
                 />
               </article>
             ))}
@@ -687,6 +673,7 @@ export default function App() {
             onAdd={() => addListItem("bankAccounts", createBankAccount)}
             onRemove={(itemId) => removeListItem("bankAccounts", itemId)}
             onCopy={copyValue}
+            editMode={editMode}
             renderItem={(account) => (
               <ItemSection
                 data={account}
@@ -701,6 +688,7 @@ export default function App() {
                 onCustomFieldRemove={(fieldId) =>
                   removeCustomFieldFromItem("bankAccounts", account.id, fieldId)
                 }
+                onFieldRemove={(field) => updateListItem("bankAccounts", account.id, field, "")}
               />
             )}
           />
@@ -725,57 +713,14 @@ export default function App() {
                 />
               </label>
             </div>
-            <DocumentList documents={vault.documents} onDownload={handleDownload} onDelete={removeDocument} />
-          </section>
-        )}
-
-        {activeSection === "career" && (
-          <section className="section-stack">
-            <ObjectSection
-              title={sectionLabels.career}
-              data={{
-                currentSkills: vault.career.currentSkills,
-                experience: vault.career.experience,
-                projects: vault.career.projects,
-                internships: vault.career.internships,
-                customFields: vault.career.customFields,
-              }}
+            <DocumentList
+              documents={vault.documents}
+              onDownload={handleDownload}
+              onDelete={removeDocument}
               editMode={editMode}
-              onChange={(field, value) => updateGroup("career", field, value)}
-              onCopy={copyValue}
-              onAddField={() => addCustomFieldToGroup("career")}
-              onCustomFieldChange={(fieldId, key, value) =>
-                updateCustomFieldInGroup("career", fieldId, key, value)
-              }
-              onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("career", fieldId)}
             />
-            <div className="panel">
-              <div className="panel-header">
-                <h3>Resume</h3>
-                <label className="ghost-button upload-button">
-                  Upload Resume
-                  <input
-                    type="file"
-                    hidden
-                    onChange={(event) =>
-                      handleFileUpload(event, {
-                        kind: "careerResume",
-                        category: "Resume",
-                        linkedTo: "career",
-                      })
-                    }
-                  />
-                </label>
-              </div>
-              <DocumentList
-                documents={vault.documents.filter((entry) => entry.id === vault.career.resumeDocumentId)}
-                onDownload={handleDownload}
-                onDelete={removeDocument}
-              />
-            </div>
           </section>
         )}
-
         {activeSection === "certificates" && (
           <RepeatableSection
             title="Certificates"
@@ -784,6 +729,7 @@ export default function App() {
             onAdd={() => addListItem("certificates", createCertificate)}
             onRemove={(itemId) => removeListItem("certificates", itemId)}
             onCopy={copyValue}
+            editMode={editMode}
             renderItem={(certificate) => (
               <div className="section-stack">
                 <ItemSection
@@ -799,6 +745,7 @@ export default function App() {
                   onCustomFieldRemove={(fieldId) =>
                     removeCustomFieldFromItem("certificates", certificate.id, fieldId)
                   }
+                  onFieldRemove={(field) => updateListItem("certificates", certificate.id, field, "")}
                 />
                 <label className="ghost-button upload-button">
                   Upload Certificate File
@@ -818,6 +765,7 @@ export default function App() {
                   documents={vault.documents.filter((entry) => entry.id === certificate.documentId)}
                   onDownload={handleDownload}
                   onDelete={removeDocument}
+                  editMode={editMode}
                 />
               </div>
             )}
@@ -832,6 +780,7 @@ export default function App() {
             onAdd={() => addListItem("achievements", createAchievement)}
             onRemove={(itemId) => removeListItem("achievements", itemId)}
             onCopy={copyValue}
+            editMode={editMode}
             renderItem={(achievement) => (
               <ItemSection
                 data={achievement}
@@ -846,72 +795,12 @@ export default function App() {
                 onCustomFieldRemove={(fieldId) =>
                   removeCustomFieldFromItem("achievements", achievement.id, fieldId)
                 }
+                onFieldRemove={(field) => updateListItem("achievements", achievement.id, field, "")}
               />
             )}
           />
         )}
 
-        {activeSection === "frequentAnswers" && (
-          <RepeatableSection
-            title="Frequently Used Answers"
-            items={vault.frequentAnswers}
-            addLabel="Add Answer"
-            onAdd={() => addListItem("frequentAnswers", createAnswer)}
-            onRemove={(itemId) => removeListItem("frequentAnswers", itemId)}
-            onCopy={copyValue}
-            renderItem={(answer) => (
-              <ItemSection
-                data={answer}
-                editMode={editMode}
-                onChange={(field, value) => updateListItem("frequentAnswers", answer.id, field, value)}
-                onCopy={copyValue}
-                title={answer.question || "Answer"}
-                onAddField={() => addCustomFieldToItem("frequentAnswers", answer.id)}
-                onCustomFieldChange={(fieldId, key, value) =>
-                  updateCustomFieldInItem("frequentAnswers", answer.id, fieldId, key, value)
-                }
-                onCustomFieldRemove={(fieldId) =>
-                  removeCustomFieldFromItem("frequentAnswers", answer.id, fieldId)
-                }
-              />
-            )}
-          />
-        )}
-
-        {activeSection === "accounts" && (
-          <RepeatableSection
-            title="Accounts"
-            items={vault.accounts}
-            addLabel="Add Account"
-            onAdd={() =>
-              addListItem("accounts", () => ({
-                id: crypto.randomUUID(),
-                platform: "",
-                username: "",
-                email: "",
-                notes: "",
-              }))
-            }
-            onRemove={(itemId) => removeListItem("accounts", itemId)}
-            onCopy={copyValue}
-            renderItem={(account) => (
-              <ItemSection
-                data={account}
-                editMode={editMode}
-                onChange={(field, value) => updateListItem("accounts", account.id, field, value)}
-                onCopy={copyValue}
-                title={account.platform || account.username || "Account"}
-                onAddField={() => addCustomFieldToItem("accounts", account.id)}
-                onCustomFieldChange={(fieldId, key, value) =>
-                  updateCustomFieldInItem("accounts", account.id, fieldId, key, value)
-                }
-                onCustomFieldRemove={(fieldId) =>
-                  removeCustomFieldFromItem("accounts", account.id, fieldId)
-                }
-              />
-            )}
-          />
-        )}
       </main>
     </div>
   );
@@ -926,6 +815,7 @@ function ObjectSection({
   onAddField,
   onCustomFieldChange,
   onCustomFieldRemove,
+  onFieldRemove,
 }) {
   return (
     <section className="section-stack">
@@ -935,7 +825,13 @@ function ObjectSection({
           Add Field
         </button>
       </div>
-      <FieldGrid data={data} editMode={editMode} onChange={onChange} onCopy={onCopy} />
+      <FieldGrid
+        data={data}
+        editMode={editMode}
+        onChange={onChange}
+        onCopy={onCopy}
+        onRemoveField={onFieldRemove}
+      />
       <CustomFields
         fields={data.customFields || []}
         editMode={editMode}
@@ -956,6 +852,7 @@ function ItemSection({
   onAddField,
   onCustomFieldChange,
   onCustomFieldRemove,
+  onFieldRemove,
 }) {
   return (
     <section className="section-stack">
@@ -969,7 +866,13 @@ function ItemSection({
           ) : null}
         </div>
       ) : null}
-      <FieldGrid data={data} editMode={editMode} onChange={onChange} onCopy={onCopy} />
+      <FieldGrid
+        data={data}
+        editMode={editMode}
+        onChange={onChange}
+        onCopy={onCopy}
+        onRemoveField={onFieldRemove}
+      />
       {onAddField ? (
         <CustomFields
           fields={data.customFields || []}
@@ -983,14 +886,21 @@ function ItemSection({
   );
 }
 
-function FieldGrid({ data, editMode, onChange, onCopy }) {
+function FieldGrid({ data, editMode, onChange, onCopy, onRemoveField }) {
   return (
     <div className="field-grid">
       {Object.entries(data)
         .filter(([field]) => field !== "customFields")
         .map(([field, value]) => (
         <label className="field-card" key={field}>
-          <span>{toLabel(field)}</span>
+          <div className="field-header">
+            <span>{toLabel(field)}</span>
+            {editMode ? (
+              <button className="icon-button danger" type="button" onClick={() => onRemoveField?.(field)}>
+                🗑
+              </button>
+            ) : null}
+          </div>
           <div className="field-row">
             {editMode ? (
               <textarea
@@ -1030,9 +940,11 @@ function CustomFields({ fields, editMode, onCopy, onChange, onRemove }) {
             ) : (
               <span>{field.label || "Custom field"}</span>
             )}
-            <button className="icon-button danger" type="button" onClick={() => onRemove(field.id)}>
-              Bin
-            </button>
+            {editMode ? (
+              <button className="icon-button danger" type="button" onClick={() => onRemove(field.id)}>
+                🗑
+              </button>
+            ) : null}
           </div>
           <div className="field-row">
             {editMode ? (
@@ -1054,7 +966,7 @@ function CustomFields({ fields, editMode, onCopy, onChange, onRemove }) {
   );
 }
 
-function RepeatableSection({ title, items, addLabel, onAdd, onRemove, onCopy, renderItem }) {
+function RepeatableSection({ title, items, addLabel, onAdd, onRemove, onCopy, renderItem, editMode }) {
   return (
     <section className="section-stack">
       <div className="subsection-header">
@@ -1073,9 +985,11 @@ function RepeatableSection({ title, items, addLabel, onAdd, onRemove, onCopy, re
               <button className="ghost-button" type="button" onClick={() => onCopy(JSON.stringify(item, null, 2))}>
                 Copy
               </button>
-              <button className="icon-button danger" type="button" onClick={() => onRemove(item.id)}>
-                Bin
-              </button>
+              {editMode ? (
+                <button className="icon-button danger" type="button" onClick={() => onRemove(item.id)}>
+                  🗑
+                </button>
+              ) : null}
             </div>
           </div>
           {renderItem(item)}
@@ -1085,7 +999,7 @@ function RepeatableSection({ title, items, addLabel, onAdd, onRemove, onCopy, re
   );
 }
 
-function DocumentList({ documents, onDownload, onDelete }) {
+function DocumentList({ documents, onDownload, onDelete, editMode }) {
   if (!documents.length) {
     return <div className="empty-state">No documents uploaded yet.</div>;
   }
@@ -1095,7 +1009,7 @@ function DocumentList({ documents, onDownload, onDelete }) {
       {documents.map((entry) => (
         <article className="document-card" key={entry.id}>
           <div>
-            <h4>{entry.name}</h4>
+            <h4>{entry.displayName || entry.name}</h4>
             <p>
               {entry.category} | {formatFileSize(entry.size)}
             </p>
@@ -1104,9 +1018,11 @@ function DocumentList({ documents, onDownload, onDelete }) {
             <button className="ghost-button" type="button" onClick={() => onDownload(entry)}>
               Download
             </button>
-            <button className="icon-button danger" type="button" onClick={() => onDelete(entry.id)}>
-              Bin
-            </button>
+            {editMode ? (
+              <button className="icon-button danger" type="button" onClick={() => onDelete(entry.id)}>
+                🗑
+              </button>
+            ) : null}
           </div>
         </article>
       ))}
@@ -1138,4 +1054,10 @@ function fileToBase64(file) {
     reader.onerror = () => reject(new Error("Could not read file."));
     reader.readAsDataURL(file);
   });
+}
+
+async function askForDocumentName(target, fallbackName) {
+  const promptLabel =
+    target.kind === "certificate" ? "Enter certificate name" : target.kind === "id" ? "Enter ID name" : "Enter document name";
+  return window.prompt(promptLabel, fallbackName)?.trim() || "";
 }
