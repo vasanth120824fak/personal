@@ -39,6 +39,8 @@ export default function App() {
   const [, setSaving] = useState(false);
   const [sessionExpiresAt, setSessionExpiresAt] = useState(null);
   const toastTimerRef = useRef(null);
+  const saveQueueRef = useRef(Promise.resolve());
+  const savingCountRef = useRef(0);
 
   useEffect(() => {
     async function bootstrap() {
@@ -134,17 +136,24 @@ export default function App() {
 
   async function persistVault(nextVault, nextStatus = "Changes saved.") {
     setVault(nextVault);
-    setSaving(true);
     showToast("Saving to MongoDB...");
+    savingCountRef.current += 1;
+    setSaving(true);
 
-    try {
-      await saveVault(nextVault);
-      showToast(nextStatus, "success");
-    } catch (error) {
-      showToast(error.message || "Save failed.", "error");
-    } finally {
-      setSaving(false);
-    }
+    saveQueueRef.current = saveQueueRef.current
+      .then(() => saveVault(nextVault))
+      .then(() => {
+        showToast(nextStatus, "success");
+      })
+      .catch((error) => {
+        showToast(error.message || "Save failed.", "error");
+      })
+      .finally(() => {
+        savingCountRef.current -= 1;
+        setSaving(savingCountRef.current > 0);
+      });
+
+    await saveQueueRef.current;
   }
 
   function updateGroup(group, field, value) {
@@ -336,6 +345,10 @@ export default function App() {
       ...vault,
       [group]: vault[group].filter((item) => item.id !== itemId),
     });
+  }
+
+  function removeFamilyMember(memberId) {
+    removeListItem("family", memberId);
   }
 
   function updateNestedBank(ownerGroup, ownerId, bankId, field, value) {
@@ -932,7 +945,7 @@ export default function App() {
                       <button
                         className="icon-button danger"
                         type="button"
-                        onClick={() => removeListItem("family", member.id)}
+                        onClick={() => removeFamilyMember(member.id)}
                       >
                         🗑
                       </button>
