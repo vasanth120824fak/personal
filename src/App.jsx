@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  createCustomField,
   createAchievement,
   createAnswer,
   createBankAccount,
@@ -25,7 +26,7 @@ const sections = Object.entries(sectionLabels);
 export default function App() {
   const [authMode, setAuthMode] = useState("signin");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [vault, setVault] = useState(null);
   const [activeSection, setActiveSection] = useState("personalInfo");
@@ -75,16 +76,16 @@ export default function App() {
     try {
       const normalizedEmail = email.trim().toLowerCase();
       if (authMode === "setup") {
-        await registerUser(normalizedEmail, password);
+        await registerUser(normalizedEmail, pin);
       } else {
-        await loginUser(normalizedEmail, password);
+        await loginUser(normalizedEmail, pin);
       }
 
       const payload = await loadVault();
       setVault(payload.vault || createDefaultVault());
       setUserEmail(normalizedEmail);
       setEmail(normalizedEmail);
-      setPassword("");
+      setPin("");
       setStatus(authMode === "setup" ? "Account created." : "Signed in.");
     } catch (error) {
       setStatus(error.message || "Authentication failed.");
@@ -118,11 +119,87 @@ export default function App() {
     });
   }
 
+  function addCustomFieldToGroup(group) {
+    persistVault({
+      ...vault,
+      [group]: {
+        ...vault[group],
+        customFields: [...(vault[group].customFields || []), createCustomField("New field", "")],
+      },
+    });
+  }
+
+  function updateCustomFieldInGroup(group, fieldId, key, value) {
+    persistVault({
+      ...vault,
+      [group]: {
+        ...vault[group],
+        customFields: (vault[group].customFields || []).map((field) =>
+          field.id === fieldId ? { ...field, [key]: value } : field,
+        ),
+      },
+    });
+  }
+
+  function removeCustomFieldFromGroup(group, fieldId) {
+    persistVault({
+      ...vault,
+      [group]: {
+        ...vault[group],
+        customFields: (vault[group].customFields || []).filter((field) => field.id !== fieldId),
+      },
+    });
+  }
+
   function updateListItem(group, itemId, field, value) {
     persistVault({
       ...vault,
       [group]: vault[group].map((item) =>
         item.id === itemId ? { ...item, [field]: value } : item,
+      ),
+    });
+  }
+
+  function addCustomFieldToItem(group, itemId) {
+    persistVault({
+      ...vault,
+      [group]: vault[group].map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              customFields: [...(item.customFields || []), createCustomField("New field", "")],
+            }
+          : item,
+      ),
+    });
+  }
+
+  function updateCustomFieldInItem(group, itemId, fieldId, key, value) {
+    persistVault({
+      ...vault,
+      [group]: vault[group].map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              customFields: (item.customFields || []).map((field) =>
+                field.id === fieldId ? { ...field, [key]: value } : field,
+              ),
+            }
+          : item,
+      ),
+    });
+  }
+
+  function removeCustomFieldFromItem(group, itemId, fieldId) {
+    persistVault({
+      ...vault,
+      [group]: vault[group].map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              customFields: (item.customFields || []).filter((field) => field.id !== fieldId),
+            }
+          : item,
       ),
     });
   }
@@ -272,7 +349,7 @@ export default function App() {
     setVault(null);
     setUserEmail("");
     setEmail("");
-    setPassword("");
+    setPin("");
     setSearch("");
     setStatus("Signed out.");
   }
@@ -281,9 +358,9 @@ export default function App() {
     return (
       <div className="auth-shell">
         <div className="auth-card">
-          <p className="eyebrow">Private Personal Vault</p>
+          <p className="eyebrow">Private Vault</p>
           <h1>Loading your workspace</h1>
-          <p className="subtitle">Checking your secure session and MongoDB vault.</p>
+          <p className="subtitle">Checking your secure session.</p>
         </div>
       </div>
     );
@@ -293,10 +370,10 @@ export default function App() {
     return (
       <div className="auth-shell">
         <div className="auth-card">
-          <p className="eyebrow">MongoDB Vault</p>
-          <h1>{authMode === "setup" ? "Create your account" : "Sign in with email"}</h1>
+          <p className="eyebrow">Private Vault</p>
+          <h1>{authMode === "setup" ? "Create account" : "Sign in with email"}</h1>
           <p className="subtitle">
-            This version stores profile data and uploaded documents fully inside MongoDB.
+            Enter your email first, then use your 6-digit PIN.
           </p>
           <form className="auth-form" onSubmit={handleAuthSubmit}>
             <label>
@@ -309,17 +386,19 @@ export default function App() {
               />
             </label>
             <label>
-              Password
+              6-Digit PIN
               <input
                 type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                inputMode="numeric"
+                pattern="\d{6}"
+                maxLength={6}
+                value={pin}
+                onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
                 required
-                minLength={8}
               />
             </label>
             <button className="primary-button" type="submit">
-              {authMode === "setup" ? "Create Account" : "Sign In"}
+              {authMode === "setup" ? "Create Account" : "Continue"}
             </button>
           </form>
           <button
@@ -372,7 +451,7 @@ export default function App() {
       <main className="content">
         <header className="topbar">
           <div>
-            <p className="eyebrow">MongoDB Secured</p>
+            <p className="eyebrow">Dashboard</p>
             <h1>{sectionLabels[activeSection]}</h1>
           </div>
           <div className="topbar-actions">
@@ -396,65 +475,107 @@ export default function App() {
         {saving ? <p className="status-text">Saving to MongoDB...</p> : null}
 
         {activeSection === "personalInfo" && (
-          <FieldGrid
+          <ObjectSection
+            title={sectionLabels.personalInfo}
             data={vault.personalInfo}
             editMode={editMode}
             onChange={(field, value) => updateGroup("personalInfo", field, value)}
             onCopy={copyValue}
+            onAddField={() => addCustomFieldToGroup("personalInfo")}
+            onCustomFieldChange={(fieldId, key, value) =>
+              updateCustomFieldInGroup("personalInfo", fieldId, key, value)
+            }
+            onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("personalInfo", fieldId)}
           />
         )}
 
         {activeSection === "contacts" && (
-          <FieldGrid
+          <ObjectSection
+            title={sectionLabels.contacts}
             data={vault.contacts}
             editMode={editMode}
             onChange={(field, value) => updateGroup("contacts", field, value)}
             onCopy={copyValue}
+            onAddField={() => addCustomFieldToGroup("contacts")}
+            onCustomFieldChange={(fieldId, key, value) =>
+              updateCustomFieldInGroup("contacts", fieldId, key, value)
+            }
+            onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("contacts", fieldId)}
           />
         )}
 
         {activeSection === "education" && (
-          <FieldGrid
+          <ObjectSection
+            title={sectionLabels.education}
             data={vault.education}
             editMode={editMode}
             onChange={(field, value) => updateGroup("education", field, value)}
             onCopy={copyValue}
+            onAddField={() => addCustomFieldToGroup("education")}
+            onCustomFieldChange={(fieldId, key, value) =>
+              updateCustomFieldInGroup("education", fieldId, key, value)
+            }
+            onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("education", fieldId)}
           />
         )}
 
         {activeSection === "college" && (
-          <FieldGrid
+          <ObjectSection
+            title={sectionLabels.college}
             data={vault.college}
             editMode={editMode}
             onChange={(field, value) => updateGroup("college", field, value)}
             onCopy={copyValue}
+            onAddField={() => addCustomFieldToGroup("college")}
+            onCustomFieldChange={(fieldId, key, value) =>
+              updateCustomFieldInGroup("college", fieldId, key, value)
+            }
+            onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("college", fieldId)}
           />
         )}
 
         {activeSection === "governmentIds" && (
-          <FieldGrid
+          <ObjectSection
+            title={sectionLabels.governmentIds}
             data={vault.governmentIds}
             editMode={editMode}
             onChange={(field, value) => updateGroup("governmentIds", field, value)}
             onCopy={copyValue}
+            onAddField={() => addCustomFieldToGroup("governmentIds")}
+            onCustomFieldChange={(fieldId, key, value) =>
+              updateCustomFieldInGroup("governmentIds", fieldId, key, value)
+            }
+            onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("governmentIds", fieldId)}
           />
         )}
 
         {activeSection === "socialLinks" && (
-          <FieldGrid
+          <ObjectSection
+            title={sectionLabels.socialLinks}
             data={vault.socialLinks}
             editMode={editMode}
             onChange={(field, value) => updateGroup("socialLinks", field, value)}
             onCopy={copyValue}
+            onAddField={() => addCustomFieldToGroup("socialLinks")}
+            onCustomFieldChange={(fieldId, key, value) =>
+              updateCustomFieldInGroup("socialLinks", fieldId, key, value)
+            }
+            onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("socialLinks", fieldId)}
           />
         )}
 
         {activeSection === "settings" && (
-          <FieldGrid
+          <ObjectSection
+            title={sectionLabels.settings}
             data={vault.settings}
             editMode={editMode}
             onChange={(field, value) => updateGroup("settings", field, value)}
             onCopy={copyValue}
+            onAddField={() => addCustomFieldToGroup("settings")}
+            onCustomFieldChange={(fieldId, key, value) =>
+              updateCustomFieldInGroup("settings", fieldId, key, value)
+            }
+            onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("settings", fieldId)}
           />
         )}
 
@@ -497,15 +618,16 @@ export default function App() {
                       />
                     </label>
                     <button
-                      className="ghost-button danger"
+                      className="icon-button danger"
                       type="button"
                       onClick={() => removeListItem("family", member.id)}
                     >
-                      Remove
+                      Bin
                     </button>
                   </div>
                 </div>
-                <FieldGrid
+                <ItemSection
+                  title={member.relation}
                   data={{
                     relation: member.relation,
                     name: member.name,
@@ -514,10 +636,18 @@ export default function App() {
                     aadhaarNumber: member.aadhaarNumber,
                     panNumber: member.panNumber,
                     notes: member.notes,
+                    customFields: member.customFields,
                   }}
                   editMode={editMode}
                   onChange={(field, value) => updateListItem("family", member.id, field, value)}
                   onCopy={copyValue}
+                  onAddField={() => addCustomFieldToItem("family", member.id)}
+                  onCustomFieldChange={(fieldId, key, value) =>
+                    updateCustomFieldInItem("family", member.id, fieldId, key, value)
+                  }
+                  onCustomFieldRemove={(fieldId) =>
+                    removeCustomFieldFromItem("family", member.id, fieldId)
+                  }
                 />
                 <div className="subsection-header">
                   <h4>Bank Accounts</h4>
@@ -530,12 +660,13 @@ export default function App() {
                   </button>
                 </div>
                 {member.bankAccounts.map((bank) => (
-                  <FieldGrid
+                  <ItemSection
                     key={bank.id}
                     data={bank}
                     editMode={editMode}
                     onChange={(field, value) => updateNestedBank("family", member.id, bank.id, field, value)}
                     onCopy={copyValue}
+                    title={bank.bankName || bank.accountHolder || "Bank Account"}
                   />
                 ))}
                 <DocumentList
@@ -557,11 +688,19 @@ export default function App() {
             onRemove={(itemId) => removeListItem("bankAccounts", itemId)}
             onCopy={copyValue}
             renderItem={(account) => (
-              <FieldGrid
+              <ItemSection
                 data={account}
                 editMode={editMode}
                 onChange={(field, value) => updateListItem("bankAccounts", account.id, field, value)}
                 onCopy={copyValue}
+                title={account.bankName || account.accountHolder || "Bank Account"}
+                onAddField={() => addCustomFieldToItem("bankAccounts", account.id)}
+                onCustomFieldChange={(fieldId, key, value) =>
+                  updateCustomFieldInItem("bankAccounts", account.id, fieldId, key, value)
+                }
+                onCustomFieldRemove={(fieldId) =>
+                  removeCustomFieldFromItem("bankAccounts", account.id, fieldId)
+                }
               />
             )}
           />
@@ -592,16 +731,23 @@ export default function App() {
 
         {activeSection === "career" && (
           <section className="section-stack">
-            <FieldGrid
+            <ObjectSection
+              title={sectionLabels.career}
               data={{
                 currentSkills: vault.career.currentSkills,
                 experience: vault.career.experience,
                 projects: vault.career.projects,
                 internships: vault.career.internships,
+                customFields: vault.career.customFields,
               }}
               editMode={editMode}
               onChange={(field, value) => updateGroup("career", field, value)}
               onCopy={copyValue}
+              onAddField={() => addCustomFieldToGroup("career")}
+              onCustomFieldChange={(fieldId, key, value) =>
+                updateCustomFieldInGroup("career", fieldId, key, value)
+              }
+              onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("career", fieldId)}
             />
             <div className="panel">
               <div className="panel-header">
@@ -640,11 +786,19 @@ export default function App() {
             onCopy={copyValue}
             renderItem={(certificate) => (
               <div className="section-stack">
-                <FieldGrid
+                <ItemSection
                   data={certificate}
                   editMode={editMode}
                   onChange={(field, value) => updateListItem("certificates", certificate.id, field, value)}
                   onCopy={copyValue}
+                  title={certificate.name || "Certificate"}
+                  onAddField={() => addCustomFieldToItem("certificates", certificate.id)}
+                  onCustomFieldChange={(fieldId, key, value) =>
+                    updateCustomFieldInItem("certificates", certificate.id, fieldId, key, value)
+                  }
+                  onCustomFieldRemove={(fieldId) =>
+                    removeCustomFieldFromItem("certificates", certificate.id, fieldId)
+                  }
                 />
                 <label className="ghost-button upload-button">
                   Upload Certificate File
@@ -679,11 +833,19 @@ export default function App() {
             onRemove={(itemId) => removeListItem("achievements", itemId)}
             onCopy={copyValue}
             renderItem={(achievement) => (
-              <FieldGrid
+              <ItemSection
                 data={achievement}
                 editMode={editMode}
                 onChange={(field, value) => updateListItem("achievements", achievement.id, field, value)}
                 onCopy={copyValue}
+                title={achievement.title || "Achievement"}
+                onAddField={() => addCustomFieldToItem("achievements", achievement.id)}
+                onCustomFieldChange={(fieldId, key, value) =>
+                  updateCustomFieldInItem("achievements", achievement.id, fieldId, key, value)
+                }
+                onCustomFieldRemove={(fieldId) =>
+                  removeCustomFieldFromItem("achievements", achievement.id, fieldId)
+                }
               />
             )}
           />
@@ -698,11 +860,19 @@ export default function App() {
             onRemove={(itemId) => removeListItem("frequentAnswers", itemId)}
             onCopy={copyValue}
             renderItem={(answer) => (
-              <FieldGrid
+              <ItemSection
                 data={answer}
                 editMode={editMode}
                 onChange={(field, value) => updateListItem("frequentAnswers", answer.id, field, value)}
                 onCopy={copyValue}
+                title={answer.question || "Answer"}
+                onAddField={() => addCustomFieldToItem("frequentAnswers", answer.id)}
+                onCustomFieldChange={(fieldId, key, value) =>
+                  updateCustomFieldInItem("frequentAnswers", answer.id, fieldId, key, value)
+                }
+                onCustomFieldRemove={(fieldId) =>
+                  removeCustomFieldFromItem("frequentAnswers", answer.id, fieldId)
+                }
               />
             )}
           />
@@ -725,11 +895,19 @@ export default function App() {
             onRemove={(itemId) => removeListItem("accounts", itemId)}
             onCopy={copyValue}
             renderItem={(account) => (
-              <FieldGrid
+              <ItemSection
                 data={account}
                 editMode={editMode}
                 onChange={(field, value) => updateListItem("accounts", account.id, field, value)}
                 onCopy={copyValue}
+                title={account.platform || account.username || "Account"}
+                onAddField={() => addCustomFieldToItem("accounts", account.id)}
+                onCustomFieldChange={(fieldId, key, value) =>
+                  updateCustomFieldInItem("accounts", account.id, fieldId, key, value)
+                }
+                onCustomFieldRemove={(fieldId) =>
+                  removeCustomFieldFromItem("accounts", account.id, fieldId)
+                }
               />
             )}
           />
@@ -739,10 +917,78 @@ export default function App() {
   );
 }
 
+function ObjectSection({
+  title,
+  data,
+  editMode,
+  onChange,
+  onCopy,
+  onAddField,
+  onCustomFieldChange,
+  onCustomFieldRemove,
+}) {
+  return (
+    <section className="section-stack">
+      <div className="subsection-header">
+        <h3>{title}</h3>
+        <button className="ghost-button" type="button" onClick={onAddField}>
+          Add Field
+        </button>
+      </div>
+      <FieldGrid data={data} editMode={editMode} onChange={onChange} onCopy={onCopy} />
+      <CustomFields
+        fields={data.customFields || []}
+        editMode={editMode}
+        onCopy={onCopy}
+        onChange={onCustomFieldChange}
+        onRemove={onCustomFieldRemove}
+      />
+    </section>
+  );
+}
+
+function ItemSection({
+  title,
+  data,
+  editMode,
+  onChange,
+  onCopy,
+  onAddField,
+  onCustomFieldChange,
+  onCustomFieldRemove,
+}) {
+  return (
+    <section className="section-stack">
+      {title ? (
+        <div className="subsection-header compact">
+          <h4>{title}</h4>
+          {onAddField ? (
+            <button className="ghost-button" type="button" onClick={onAddField}>
+              Add Field
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      <FieldGrid data={data} editMode={editMode} onChange={onChange} onCopy={onCopy} />
+      {onAddField ? (
+        <CustomFields
+          fields={data.customFields || []}
+          editMode={editMode}
+          onCopy={onCopy}
+          onChange={onCustomFieldChange}
+          onRemove={onCustomFieldRemove}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 function FieldGrid({ data, editMode, onChange, onCopy }) {
   return (
     <div className="field-grid">
-      {Object.entries(data).map(([field, value]) => (
+      {Object.entries(data)
+        .filter(([field]) => field !== "customFields")
+        .map(([field, value]) => (
         <label className="field-card" key={field}>
           <span>{toLabel(field)}</span>
           <div className="field-row">
@@ -760,6 +1006,49 @@ function FieldGrid({ data, editMode, onChange, onCopy }) {
             </button>
           </div>
         </label>
+      ))}
+    </div>
+  );
+}
+
+function CustomFields({ fields, editMode, onCopy, onChange, onRemove }) {
+  if (!fields.length) {
+    return null;
+  }
+
+  return (
+    <div className="field-grid">
+      {fields.map((field) => (
+        <article className="field-card" key={field.id}>
+          <div className="custom-field-header">
+            {editMode ? (
+              <input
+                className="custom-label-input"
+                value={field.label}
+                onChange={(event) => onChange(field.id, "label", event.target.value)}
+              />
+            ) : (
+              <span>{field.label || "Custom field"}</span>
+            )}
+            <button className="icon-button danger" type="button" onClick={() => onRemove(field.id)}>
+              Bin
+            </button>
+          </div>
+          <div className="field-row">
+            {editMode ? (
+              <textarea
+                rows={String(field.value ?? "").length > 60 ? 4 : 1}
+                value={String(field.value ?? "")}
+                onChange={(event) => onChange(field.id, "value", event.target.value)}
+              />
+            ) : (
+              <div className="field-value">{String(field.value || "Not set")}</div>
+            )}
+            <button className="copy-button" type="button" onClick={() => onCopy(field.value)}>
+              Copy
+            </button>
+          </div>
+        </article>
       ))}
     </div>
   );
@@ -784,8 +1073,8 @@ function RepeatableSection({ title, items, addLabel, onAdd, onRemove, onCopy, re
               <button className="ghost-button" type="button" onClick={() => onCopy(JSON.stringify(item, null, 2))}>
                 Copy
               </button>
-              <button className="ghost-button danger" type="button" onClick={() => onRemove(item.id)}>
-                Remove
+              <button className="icon-button danger" type="button" onClick={() => onRemove(item.id)}>
+                Bin
               </button>
             </div>
           </div>
@@ -815,8 +1104,8 @@ function DocumentList({ documents, onDownload, onDelete }) {
             <button className="ghost-button" type="button" onClick={() => onDownload(entry)}>
               Download
             </button>
-            <button className="ghost-button danger" type="button" onClick={() => onDelete(entry.id)}>
-              Delete
+            <button className="icon-button danger" type="button" onClick={() => onDelete(entry.id)}>
+              Bin
             </button>
           </div>
         </article>

@@ -10,9 +10,9 @@ export async function handler(event) {
   }
 
   try {
-    const { email, password } = readJsonBody(event);
-    if (!email || !password || password.length < 8) {
-      return json(400, { error: "Email and strong password are required." });
+    const { email, pin } = readJsonBody(event);
+    if (!email || !/^\d{6}$/.test(String(pin || ""))) {
+      return json(400, { error: "Email and 6-digit PIN are required." });
     }
 
     await ensureIndexes();
@@ -24,10 +24,10 @@ export async function handler(event) {
       return json(409, { error: "Account already exists." });
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const pinHash = await bcrypt.hash(String(pin), 12);
     const user = {
       email: normalizedEmail,
-      passwordHash,
+      pinHash,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

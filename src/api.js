@@ -23,17 +23,17 @@ async function request(path, options = {}) {
   return payload;
 }
 
-export function registerUser(email, password) {
+export function registerUser(email, pin) {
   return request("auth-register", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, pin }),
   });
 }
 
-export function loginUser(email, password) {
+export function loginUser(email, pin) {
   return request("auth-login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, pin }),
   });
 }
 
