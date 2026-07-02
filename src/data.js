@@ -168,6 +168,7 @@ export function createBankAccount() {
     micrCode: "",
     cusId: "",
     branch: "",
+    documentIds: [],
     fieldLabels: {},
     customFields: [],
   };

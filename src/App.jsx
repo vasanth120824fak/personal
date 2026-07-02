@@ -632,6 +632,25 @@ export default function App() {
         );
       }
 
+      if (target.kind === "bankAccount") {
+        nextVault.bankAccounts = vault.bankAccounts.map((bankAccount) =>
+          bankAccount.id === target.linkedTo
+            ? { ...bankAccount, documentIds: [...(bankAccount.documentIds || []), metadata.id] }
+            : bankAccount,
+        );
+      }
+
+      if (target.kind === "familyBankAccount") {
+        nextVault.family = vault.family.map((member) => ({
+          ...member,
+          bankAccounts: member.bankAccounts.map((bankAccount) =>
+            bankAccount.id === target.linkedTo
+              ? { ...bankAccount, documentIds: [...(bankAccount.documentIds || []), metadata.id] }
+              : bankAccount,
+          ),
+        }));
+      }
+
       if (target.kind === "otherSection") {
         nextVault.others = vault.others.map((section) =>
           section.id === target.linkedTo
@@ -688,6 +707,14 @@ export default function App() {
         family: vault.family.map((member) => ({
           ...member,
           documentIds: member.documentIds.filter((entryId) => entryId !== documentId),
+          bankAccounts: member.bankAccounts.map((bankAccount) => ({
+            ...bankAccount,
+            documentIds: (bankAccount.documentIds || []).filter((entryId) => entryId !== documentId),
+          })),
+        })),
+        bankAccounts: vault.bankAccounts.map((bankAccount) => ({
+          ...bankAccount,
+          documentIds: (bankAccount.documentIds || []).filter((entryId) => entryId !== documentId),
         })),
       };
 
@@ -1022,19 +1049,44 @@ export default function App() {
                   </button>
                 </div>
                 {member.bankAccounts.map((bank) => (
-                  <ItemSection
-                    key={bank.id}
-                    data={bank}
-                    editMode={editMode}
-                    onChange={(field, value) => updateNestedBank("family", member.id, bank.id, field, value)}
-                    onCopy={copyValue}
-                    title={bank.bankName || bank.accountHolder || "Bank Account"}
-                    onRenameField={(field, label) => renameListItemField("family", member.id, field, label)}
-                    onCustomFieldRename={(fieldId, label) =>
-                      renameCustomFieldInItem("family", member.id, fieldId, label)
-                    }
-                    onFieldRemove={(field) => removeNestedBankField("family", member.id, bank.id, field)}
-                  />
+                  <div key={bank.id} className="section-stack">
+                    <div className="subsection-header compact">
+                      <h4>{bank.bankName || bank.accountHolder || "Bank Account"}</h4>
+                      <label className="ghost-button upload-button">
+                        Upload Document
+                        <input
+                          type="file"
+                          hidden
+                          onChange={(event) =>
+                            handleFileUpload(event, {
+                              kind: "familyBankAccount",
+                              category: "Family bank document",
+                              linkedTo: bank.id,
+                            })
+                          }
+                        />
+                      </label>
+                    </div>
+                    <ItemSection
+                      key={bank.id}
+                      data={bank}
+                      editMode={editMode}
+                      onChange={(field, value) => updateNestedBank("family", member.id, bank.id, field, value)}
+                      onCopy={copyValue}
+                      title={null}
+                      onRenameField={(field, label) => renameListItemField("family", member.id, field, label)}
+                      onCustomFieldRename={(fieldId, label) =>
+                        renameCustomFieldInItem("family", member.id, fieldId, label)
+                      }
+                      onFieldRemove={(field) => removeNestedBankField("family", member.id, bank.id, field)}
+                    />
+                    <DocumentList
+                      documents={vault.documents.filter((entry) => (bank.documentIds || []).includes(entry.id))}
+                      onDownload={handleDownload}
+                      onDelete={removeDocument}
+                      editMode={editMode}
+                    />
+                  </div>
                 ))}
                 <DocumentList
                   documents={vault.documents.filter((entry) => member.documentIds.includes(entry.id))}
@@ -1057,25 +1109,50 @@ export default function App() {
             onCopy={copyValue}
             editMode={editMode}
             renderItem={(account) => (
-              <ItemSection
-                data={account}
-                editMode={editMode}
-                onChange={(field, value) => updateListItem("bankAccounts", account.id, field, value)}
-                onCopy={copyValue}
-                title={account.bankName || account.accountHolder || "Bank Account"}
-                onAddField={() => addCustomFieldToItem("bankAccounts", account.id)}
-                onRenameField={(field, label) => renameListItemField("bankAccounts", account.id, field, label)}
-                onCustomFieldChange={(fieldId, key, value) =>
-                  updateCustomFieldInItem("bankAccounts", account.id, fieldId, key, value)
-                }
-                onCustomFieldRename={(fieldId, label) =>
-                  renameCustomFieldInItem("bankAccounts", account.id, fieldId, label)
-                }
-                onCustomFieldRemove={(fieldId) =>
-                  removeCustomFieldFromItem("bankAccounts", account.id, fieldId)
-                }
-                onFieldRemove={(field) => removeFieldFromItem("bankAccounts", account.id, field)}
-              />
+              <div className="section-stack" key={account.id}>
+                <div className="subsection-header compact">
+                  <h4>{account.bankName || account.accountHolder || "Bank Account"}</h4>
+                  <label className="ghost-button upload-button">
+                    Upload Document
+                    <input
+                      type="file"
+                      hidden
+                      onChange={(event) =>
+                        handleFileUpload(event, {
+                          kind: "bankAccount",
+                          category: "Bank document",
+                          linkedTo: account.id,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                <ItemSection
+                  data={account}
+                  editMode={editMode}
+                  onChange={(field, value) => updateListItem("bankAccounts", account.id, field, value)}
+                  onCopy={copyValue}
+                  title={null}
+                  onAddField={() => addCustomFieldToItem("bankAccounts", account.id)}
+                  onRenameField={(field, label) => renameListItemField("bankAccounts", account.id, field, label)}
+                  onCustomFieldChange={(fieldId, key, value) =>
+                    updateCustomFieldInItem("bankAccounts", account.id, fieldId, key, value)
+                  }
+                  onCustomFieldRename={(fieldId, label) =>
+                    renameCustomFieldInItem("bankAccounts", account.id, fieldId, label)
+                  }
+                  onCustomFieldRemove={(fieldId) =>
+                    removeCustomFieldFromItem("bankAccounts", account.id, fieldId)
+                  }
+                  onFieldRemove={(field) => removeFieldFromItem("bankAccounts", account.id, field)}
+                />
+                <DocumentList
+                  documents={vault.documents.filter((entry) => (account.documentIds || []).includes(entry.id))}
+                  onDownload={handleDownload}
+                  onDelete={removeDocument}
+                  editMode={editMode}
+                />
+              </div>
             )}
           />
         )}
