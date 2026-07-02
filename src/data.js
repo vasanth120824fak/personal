@@ -56,7 +56,6 @@ export const createDefaultVault = () => ({
       email: "",
       aadhaarNumber: "",
       panNumber: "",
-      notes: "",
       bankAccounts: [createBankAccount()],
       documentIds: [],
       fieldLabels: {},
