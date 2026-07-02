@@ -28,8 +28,9 @@ const searchHint = "Search mother, aadhaar, resume, college email...";
 export default function App() {
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
-  const [authMode, setAuthMode] = useState("login");
   const [userEmail, setUserEmail] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPin, setNewUserPin] = useState("");
   const [vault, setVault] = useState(null);
   const [activeSection, setActiveSection] = useState("personalInfo");
   const [editMode, setEditMode] = useState(false);
@@ -41,6 +42,7 @@ export default function App() {
   const toastTimerRef = useRef(null);
   const saveQueueRef = useRef(Promise.resolve());
   const savingCountRef = useRef(0);
+  const adminEmail = "admin@gmail.com";
 
   useEffect(() => {
     async function bootstrap() {
@@ -113,13 +115,8 @@ export default function App() {
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
-      if (authMode === "create") {
-        await registerUser(normalizedEmail, pin);
-        showToast("Account created.");
-      } else {
-        await loginUser(normalizedEmail, pin);
-        showToast("Signed in.");
-      }
+      await loginUser(normalizedEmail, pin);
+      showToast("Signed in.");
 
       const payload = await loadVault();
       setVault(payload.vault || createDefaultVault());
@@ -131,6 +128,20 @@ export default function App() {
       showToast(error.message || "Authentication failed.", "error");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleCreateUser(event) {
+    event.preventDefault();
+
+    try {
+      const normalizedEmail = newUserEmail.trim().toLowerCase();
+      await registerUser(normalizedEmail, newUserPin);
+      setNewUserEmail("");
+      setNewUserPin("");
+      showToast("User created.", "success");
+    } catch (error) {
+      showToast(error.message || "User creation failed.", "error");
     }
   }
 
@@ -698,7 +709,8 @@ export default function App() {
       setUserEmail("");
       setEmail("");
       setPin("");
-      setAuthMode("login");
+      setNewUserEmail("");
+      setNewUserPin("");
       setSearch("");
       setSessionExpiresAt(null);
       showToast("Signed out.");
@@ -740,12 +752,9 @@ export default function App() {
               required
             />
             <button className="primary-button" type="submit">
-              {authMode === "create" ? "Create Account" : "Unlock"}
+              Unlock
             </button>
           </form>
-          <button className="ghost-button auth-switch" type="button" onClick={() => setAuthMode(authMode === "create" ? "login" : "create")}>
-            {authMode === "create" ? "Already have an account?" : "Create Account"}
-          </button>
         </div>
       </div>
     );
@@ -798,6 +807,38 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        {userEmail === adminEmail ? (
+          <section className="panel">
+            <div className="subsection-header">
+              <h3>Create User</h3>
+            </div>
+            <form className="auth-form" onSubmit={handleCreateUser}>
+              <input
+                type="email"
+                aria-label="New user email"
+                placeholder="New user email"
+                value={newUserEmail}
+                onChange={(event) => setNewUserEmail(event.target.value)}
+                required
+              />
+              <input
+                type="password"
+                aria-label="New user PIN"
+                placeholder="6-digit PIN"
+                inputMode="numeric"
+                pattern="\d{6}"
+                maxLength={6}
+                value={newUserPin}
+                onChange={(event) => setNewUserPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                required
+              />
+              <button className="primary-button" type="submit">
+                Add User
+              </button>
+            </form>
+          </section>
+        ) : null}
 
         {toast ? <Toast message={toast.message} type={toast.type} /> : null}
 
