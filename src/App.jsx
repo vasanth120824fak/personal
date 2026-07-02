@@ -24,6 +24,11 @@ import {
 const sections = Object.entries(sectionLabels);
 const vaultTitle = "Private Personal Vault";
 const searchHint = "Search mother, aadhaar, resume, college email...";
+const bankFieldLabels = {
+  ifscCode: "IFSC Code",
+  micrCode: "MICR Code",
+  cusId: "Cus ID",
+};
 
 export default function App() {
   const [email, setEmail] = useState("");
@@ -798,11 +803,16 @@ export default function App() {
         <header className="topbar">
           <h1>{sectionLabels[activeSection]}</h1>
           <div className="topbar-actions">
-            <button className="ghost-button" type="button" onClick={() => setEditMode((value) => !value)}>
+            <button className="ghost-button edit-button" type="button" onClick={() => setEditMode((value) => !value)}>
               {editMode ? "View Mode" : "Edit Mode"}
             </button>
-            <CopyButton value={JSON.stringify(vault, null, 2)} onCopy={copyValue} label="Copy All" />
-            <button className="primary-button" type="button" onClick={handleLogout}>
+            <CopyButton
+              value={JSON.stringify(vault, null, 2)}
+              onCopy={copyValue}
+              label="Copy All"
+              className="copy-all-button"
+            />
+            <button className="primary-button signout-button" type="button" onClick={handleLogout}>
               Sign Out
             </button>
           </div>
@@ -896,24 +906,6 @@ export default function App() {
           />
         )}
 
-        {activeSection === "college" && (
-          <ObjectSection
-            title={sectionLabels.college}
-            data={vault.college}
-            editMode={editMode}
-            onChange={(field, value) => updateGroup("college", field, value)}
-            onCopy={copyValue}
-            onAddField={() => addCustomFieldToGroup("college")}
-            onRenameField={(field, label) => renameGroupField("college", field, label)}
-            onCustomFieldChange={(fieldId, key, value) =>
-              updateCustomFieldInGroup("college", fieldId, key, value)
-            }
-            onCustomFieldRename={(fieldId, label) => renameCustomFieldInGroup("college", fieldId, label)}
-            onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("college", fieldId)}
-            onFieldRemove={(field) => removeFieldFromGroup("college", field)}
-          />
-        )}
-
         {activeSection === "governmentIds" && (
           <ObjectSection
             title={sectionLabels.governmentIds}
@@ -994,14 +986,12 @@ export default function App() {
                   </div>
                 </div>
                 <ItemSection
-                  title="Details"
                   data={{
                     name: member.name,
                     mobile: member.mobile,
                     email: member.email,
                     aadhaarNumber: member.aadhaarNumber,
                     panNumber: member.panNumber,
-                    notes: member.notes,
                     fieldLabels: member.fieldLabels,
                     customFields: member.customFields,
                   }}
@@ -1106,15 +1096,35 @@ export default function App() {
                       linkedTo: "",
                     })
                   }
-                />
-              </label>
+                  />
+                </label>
             </div>
-            <DocumentList
-              documents={vault.documents}
-              onDownload={handleDownload}
-              onDelete={removeDocument}
-              editMode={editMode}
-            />
+            <div className="section-stack">
+              <div className="subsection-header compact">
+                <h4>Documents</h4>
+              </div>
+              <DocumentList
+                documents={vault.documents.filter(
+                  (entry) => entry.kind === "document" || (!entry.kind && entry.category === "General document"),
+                )}
+                onDownload={handleDownload}
+                onDelete={removeDocument}
+                editMode={editMode}
+              />
+            </div>
+            <div className="section-stack">
+              <div className="subsection-header compact">
+                <h4>Others</h4>
+              </div>
+              <DocumentList
+                documents={vault.documents.filter(
+                  (entry) => (entry.kind ? entry.kind !== "document" : entry.category !== "General document"),
+                )}
+                onDownload={handleDownload}
+                onDelete={removeDocument}
+                editMode={editMode}
+              />
+            </div>
           </section>
         )}
         {activeSection === "certificates" && (
@@ -1367,9 +1377,9 @@ function ItemSection({
 }) {
   return (
     <section className="section-stack">
-      {title ? (
+      {title || onAddField ? (
         <div className="subsection-header compact">
-          <h4>{title}</h4>
+          {title ? <h4>{title}</h4> : <span />}
           {onAddField ? (
             <button className="ghost-button" type="button" onClick={onAddField}>
               Add Field
@@ -1403,14 +1413,26 @@ function FieldGrid({ data, editMode, onChange, onCopy, onRemoveField, onRenameFi
   return (
     <div className="field-grid">
       {Object.entries(data)
-        .filter(([field]) => !["id", "relation", "customFields", "fieldLabels", "documentIds", "subsections"].includes(field))
+        .filter(([field]) =>
+          ![
+            "id",
+            "relation",
+            "notes",
+            "nationality",
+            "religion",
+            "customFields",
+            "fieldLabels",
+            "documentIds",
+            "subsections",
+          ].includes(field),
+        )
         .map(([field, value]) => (
           <FieldCard
             key={field}
             field={field}
             value={value}
             editMode={editMode}
-            label={data.fieldLabels?.[field] ?? toLabel(field)}
+            label={data.fieldLabels?.[field] ?? formatFieldLabel(field)}
             onChange={onChange}
             onCopy={onCopy}
             onRemoveField={onRemoveField}
@@ -1651,7 +1673,12 @@ function CopyButton({ value, onCopy, label = "Copy" }) {
   }
 
   return (
-    <button className="copy-button" type="button" onClick={handleClick} disabled={copied}>
+    <button
+      className={`copy-button ${label === "Copy All" ? "copy-all-button" : ""}`}
+      type="button"
+      onClick={handleClick}
+      disabled={copied}
+    >
       {copied ? "Copied" : label}
     </button>
   );
@@ -1661,7 +1688,10 @@ function Toast({ message, type }) {
   return <div className={`toast toast-${type}`}>{message}</div>;
 }
 
-function toLabel(value) {
+function formatFieldLabel(value) {
+  if (bankFieldLabels[value]) {
+    return bankFieldLabels[value];
+  }
   return value.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
 }
 

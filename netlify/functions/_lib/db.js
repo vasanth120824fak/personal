@@ -41,7 +41,7 @@ export async function getBucket() {
   return new GridFSBucket(db, { bucketName: "vaultFiles" });
 }
 
-export async function uploadBufferFile({ userId, name, displayName, mimeType, category, linkedTo, data }) {
+export async function uploadBufferFile({ userId, name, displayName, mimeType, category, linkedTo, kind, data }) {
   const bucket = await getBucket();
   const buffer = Buffer.from(data, "base64");
   const source = Readable.from(buffer);
@@ -49,14 +49,15 @@ export async function uploadBufferFile({ userId, name, displayName, mimeType, ca
   return new Promise((resolve, reject) => {
     const uploadStream = bucket.openUploadStream(name, {
       contentType: mimeType || "application/octet-stream",
-      metadata: {
-        userId,
-        displayName: displayName || name,
-        category,
-        linkedTo,
-        uploadedAt: new Date(),
-        size: buffer.length,
-      },
+        metadata: {
+          userId,
+          displayName: displayName || name,
+          category,
+          linkedTo,
+          kind,
+          uploadedAt: new Date(),
+          size: buffer.length,
+        },
     });
 
     source.pipe(uploadStream);
@@ -71,6 +72,7 @@ export async function uploadBufferFile({ userId, name, displayName, mimeType, ca
         uploadedAt: new Date().toISOString(),
         category,
         linkedTo,
+        kind,
       });
     });
   });

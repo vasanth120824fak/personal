@@ -9,7 +9,7 @@ export async function handler(event) {
 
   try {
     const session = verifySession(event);
-    const { name, displayName, mimeType, category, linkedTo, data } = readJsonBody(event);
+    const { name, displayName, mimeType, category, linkedTo, kind, data } = readJsonBody(event);
 
     if (!name || !data) {
       return json(400, { error: "File name and data are required." });
@@ -22,6 +22,7 @@ export async function handler(event) {
       mimeType,
       category,
       linkedTo,
+      kind,
       data,
     });
 
