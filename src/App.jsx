@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createCustomField,
   createBankAccount,
@@ -31,13 +31,12 @@ export default function App() {
   const [vault, setVault] = useState(null);
   const [activeSection, setActiveSection] = useState("personalInfo");
   const [editMode, setEditMode] = useState(false);
-  const [status, setStatus] = useState("");
-  const [busyText, setBusyText] = useState("");
-  const [ultraEditMode, setUltraEditMode] = useState(false);
+  const [toast, setToast] = useState(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [, setSaving] = useState(false);
   const [sessionExpiresAt, setSessionExpiresAt] = useState(null);
+  const toastTimerRef = useRef(null);
 
   useEffect(() => {
     async function bootstrap() {
@@ -70,6 +69,15 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [sessionExpiresAt]);
 
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const searchResults = useMemo(() => {
     if (!vault || !search.trim()) {
       return [];
@@ -84,13 +92,23 @@ export default function App() {
       .map(([key, label]) => ({ key, label }));
   }, [search, vault]);
 
+  function showToast(message, type = "info") {
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+
+    setToast({ message, type });
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null);
+    }, 3000);
+  }
+
   async function handleAuthSubmit(event) {
     event.preventDefault();
     setLoading(true);
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
-      setBusyText("Signing in...");
       await loginUser(normalizedEmail, pin);
 
       const payload = await loadVault();
@@ -99,28 +117,26 @@ export default function App() {
       setEmail(normalizedEmail);
       setPin("");
       setSessionExpiresAt(Date.now() + 30 * 60 * 1000);
-      setStatus("Signed in.");
+      showToast("Signed in.");
     } catch (error) {
-      setStatus(error.message || "Authentication failed.");
+      showToast(error.message || "Authentication failed.", "error");
     } finally {
       setLoading(false);
-      setBusyText("");
     }
   }
 
   async function persistVault(nextVault, nextStatus = "Changes saved.") {
     setVault(nextVault);
     setSaving(true);
-    setBusyText("Saving...");
+    showToast("Saving to MongoDB...");
 
     try {
       await saveVault(nextVault);
-      setStatus(nextStatus);
+      showToast(nextStatus, "success");
     } catch (error) {
-      setStatus(error.message || "Save failed.");
+      showToast(error.message || "Save failed.", "error");
     } finally {
       setSaving(false);
-      setBusyText("");
     }
   }
 
@@ -130,6 +146,19 @@ export default function App() {
       [group]: {
         ...vault[group],
         [field]: value,
+      },
+    });
+  }
+
+  function renameGroupField(group, field, label) {
+    persistVault({
+      ...vault,
+      [group]: {
+        ...vault[group],
+        fieldLabels: {
+          ...(vault[group].fieldLabels || {}),
+          [field]: label,
+        },
       },
     });
   }
@@ -165,6 +194,18 @@ export default function App() {
     });
   }
 
+  function renameCustomFieldInGroup(group, fieldId, label) {
+    persistVault({
+      ...vault,
+      [group]: {
+        ...vault[group],
+        customFields: (vault[group].customFields || []).map((field) =>
+          field.id === fieldId ? { ...field, label } : field,
+        ),
+      },
+    });
+  }
+
   function removeCustomFieldFromGroup(group, fieldId) {
     persistVault({
       ...vault,
@@ -180,6 +221,23 @@ export default function App() {
       ...vault,
       [group]: vault[group].map((item) =>
         item.id === itemId ? { ...item, [field]: value } : item,
+      ),
+    });
+  }
+
+  function renameListItemField(group, itemId, field, label) {
+    persistVault({
+      ...vault,
+      [group]: vault[group].map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              fieldLabels: {
+                ...(item.fieldLabels || {}),
+                [field]: label,
+              },
+            }
+          : item,
       ),
     });
   }
@@ -207,6 +265,22 @@ export default function App() {
               ...item,
               customFields: (item.customFields || []).map((field) =>
                 field.id === fieldId ? { ...field, [key]: value } : field,
+              ),
+            }
+          : item,
+      ),
+    });
+  }
+
+  function renameCustomFieldInItem(group, itemId, fieldId, label) {
+    persistVault({
+      ...vault,
+      [group]: vault[group].map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              customFields: (item.customFields || []).map((field) =>
+                field.id === fieldId ? { ...field, label } : field,
               ),
             }
           : item,
@@ -275,6 +349,30 @@ export default function App() {
     });
   }
 
+  function removeNestedBankField(ownerGroup, ownerId, bankId, field) {
+    persistVault({
+      ...vault,
+      [ownerGroup]: vault[ownerGroup].map((item) => {
+        if (item.id !== ownerId) {
+          return item;
+        }
+
+        return {
+          ...item,
+          bankAccounts: item.bankAccounts.map((bank) => {
+            if (bank.id !== bankId) {
+              return bank;
+            }
+
+            const nextBank = { ...bank };
+            delete nextBank[field];
+            return nextBank;
+          }),
+        };
+      }),
+    });
+  }
+
   function addNestedBank(ownerGroup, ownerId) {
     persistVault({
       ...vault,
@@ -291,6 +389,23 @@ export default function App() {
       ...vault,
       others: vault.others.map((section) =>
         section.id === sectionId ? { ...section, [field]: value } : section,
+      ),
+    });
+  }
+
+  function renameOtherSectionField(sectionId, field, label) {
+    persistVault({
+      ...vault,
+      others: vault.others.map((section) =>
+        section.id === sectionId
+          ? {
+              ...section,
+              fieldLabels: {
+                ...(section.fieldLabels || {}),
+                [field]: label,
+              },
+            }
+          : section,
       ),
     });
   }
@@ -329,6 +444,30 @@ export default function App() {
               ...section,
               subsections: section.subsections.map((subsection) =>
                 subsection.id === subsectionId ? { ...subsection, [field]: value } : subsection,
+              ),
+            }
+          : section,
+      ),
+    });
+  }
+
+  function renameOtherSubsectionField(sectionId, subsectionId, field, label) {
+    persistVault({
+      ...vault,
+      others: vault.others.map((section) =>
+        section.id === sectionId
+          ? {
+              ...section,
+              subsections: section.subsections.map((subsection) =>
+                subsection.id === subsectionId
+                  ? {
+                      ...subsection,
+                      fieldLabels: {
+                        ...(subsection.fieldLabels || {}),
+                        [field]: label,
+                      },
+                    }
+                  : subsection,
               ),
             }
           : section,
@@ -428,7 +567,6 @@ export default function App() {
         return;
       }
 
-      setBusyText("Uploading document...");
       const data = await fileToBase64(file);
       const payload = await uploadDocument({
         name: file.name,
@@ -458,18 +596,34 @@ export default function App() {
         );
       }
 
+      if (target.kind === "otherSection") {
+        nextVault.others = vault.others.map((section) =>
+          section.id === target.linkedTo
+            ? { ...section, documentIds: [...(section.documentIds || []), metadata.id] }
+            : section,
+        );
+      }
+
+      if (target.kind === "otherSubsection") {
+        nextVault.others = vault.others.map((section) => ({
+          ...section,
+          subsections: section.subsections.map((subsection) =>
+            subsection.id === target.linkedTo
+              ? { ...subsection, documentIds: [...(subsection.documentIds || []), metadata.id] }
+              : subsection,
+          ),
+        }));
+      }
+
       await persistVault(nextVault, "Document uploaded.");
     } catch (error) {
-      setStatus(error.message || "Upload failed.");
-    } finally {
-      setBusyText("");
-      event.target.value = "";
+      showToast(error.message || "Upload failed.", "error");
     }
+    event.target.value = "";
   }
 
   async function handleDownload(fileRecord) {
     try {
-      setBusyText("Downloading document...");
       const blob = await downloadDocument(fileRecord.id);
       const url = URL.createObjectURL(blob);
       const anchor = window.document.createElement("a");
@@ -477,17 +631,14 @@ export default function App() {
       anchor.download = fileRecord.displayName || fileRecord.name || "download";
       anchor.click();
       URL.revokeObjectURL(url);
-      setStatus("Download started.");
+      showToast("Download started.");
     } catch (error) {
-      setStatus(error.message || "Download failed.");
-    } finally {
-      setBusyText("");
+      showToast(error.message || "Download failed.", "error");
     }
   }
 
   async function removeDocument(documentId) {
     try {
-      setBusyText("Removing document...");
       await deleteDocument(documentId);
 
       const nextVault = {
@@ -506,30 +657,31 @@ export default function App() {
 
       await persistVault(nextVault, "Document removed.");
     } catch (error) {
-      setStatus(error.message || "Delete failed.");
-    } finally {
-      setBusyText("");
+      showToast(error.message || "Delete failed.", "error");
     }
   }
 
   async function copyValue(value) {
-    setBusyText("Copying...");
-    await navigator.clipboard.writeText(String(value ?? ""));
-    setStatus("Copied.");
-    setBusyText("");
+    try {
+      await navigator.clipboard.writeText(String(value ?? ""));
+      showToast("Copied.");
+    } catch {
+      showToast("Copy failed.", "error");
+    }
   }
 
   async function handleLogout() {
-    setBusyText("Signing out...");
-    await logoutUser();
-    setVault(null);
-    setUserEmail("");
-    setEmail("");
-    setPin("");
-    setSearch("");
-    setStatus("Signed out.");
-    setBusyText("");
-    setSessionExpiresAt(null);
+    try {
+      await logoutUser();
+    } finally {
+      setVault(null);
+      setUserEmail("");
+      setEmail("");
+      setPin("");
+      setSearch("");
+      setSessionExpiresAt(null);
+      showToast("Signed out.");
+    }
   }
 
   if (loading) {
@@ -546,7 +698,6 @@ export default function App() {
     return (
       <div className="auth-shell">
         <div className="auth-card">
-          {busyText ? <p className="status-text">{busyText}</p> : null}
           <form className="auth-form" onSubmit={handleAuthSubmit}>
             <input
               type="email"
@@ -567,11 +718,10 @@ export default function App() {
               onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
               required
             />
-            <button className="primary-button" type="submit">
+              <button className="primary-button" type="submit">
               Unlock
             </button>
           </form>
-          {status ? <p className="status-text">{status}</p> : null}
         </div>
       </div>
     );
@@ -618,25 +768,14 @@ export default function App() {
             <button className="ghost-button" type="button" onClick={() => setEditMode((value) => !value)}>
               {editMode ? "View Mode" : "Edit Mode"}
             </button>
-            <button className="ghost-button" type="button" onClick={() => setUltraEditMode((value) => !value)}>
-              {ultraEditMode ? "Ultra On" : "Ultra Edit"}
-            </button>
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => copyValue(JSON.stringify(vault, null, 2))}
-            >
-              Copy All
-            </button>
+            <CopyButton value={JSON.stringify(vault, null, 2)} onCopy={copyValue} label="Copy All" />
             <button className="primary-button" type="button" onClick={handleLogout}>
               Sign Out
             </button>
           </div>
         </header>
 
-        {status ? <p className="status-banner">{status}</p> : null}
-        {saving ? <p className="status-text">Saving to MongoDB...</p> : null}
-        {busyText ? <p className="status-text">{busyText}</p> : null}
+        {toast ? <Toast message={toast.message} type={toast.type} /> : null}
 
         {activeSection === "personalInfo" && (
           <ObjectSection
@@ -646,11 +785,13 @@ export default function App() {
             onChange={(field, value) => updateGroup("personalInfo", field, value)}
             onCopy={copyValue}
             onAddField={() => addCustomFieldToGroup("personalInfo")}
+            onRenameField={(field, label) => renameGroupField("personalInfo", field, label)}
             onCustomFieldChange={(fieldId, key, value) =>
               updateCustomFieldInGroup("personalInfo", fieldId, key, value)
             }
+            onCustomFieldRename={(fieldId, label) => renameCustomFieldInGroup("personalInfo", fieldId, label)}
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("personalInfo", fieldId)}
-            onFieldRemove={(field) => updateGroup("personalInfo", field, "")}
+            onFieldRemove={(field) => removeFieldFromGroup("personalInfo", field)}
           />
         )}
 
@@ -662,11 +803,13 @@ export default function App() {
             onChange={(field, value) => updateGroup("contacts", field, value)}
             onCopy={copyValue}
             onAddField={() => addCustomFieldToGroup("contacts")}
+            onRenameField={(field, label) => renameGroupField("contacts", field, label)}
             onCustomFieldChange={(fieldId, key, value) =>
               updateCustomFieldInGroup("contacts", fieldId, key, value)
             }
+            onCustomFieldRename={(fieldId, label) => renameCustomFieldInGroup("contacts", fieldId, label)}
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("contacts", fieldId)}
-            onFieldRemove={(field) => updateGroup("contacts", field, "")}
+            onFieldRemove={(field) => removeFieldFromGroup("contacts", field)}
           />
         )}
 
@@ -678,11 +821,13 @@ export default function App() {
             onChange={(field, value) => updateGroup("education", field, value)}
             onCopy={copyValue}
             onAddField={() => addCustomFieldToGroup("education")}
+            onRenameField={(field, label) => renameGroupField("education", field, label)}
             onCustomFieldChange={(fieldId, key, value) =>
               updateCustomFieldInGroup("education", fieldId, key, value)
             }
+            onCustomFieldRename={(fieldId, label) => renameCustomFieldInGroup("education", fieldId, label)}
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("education", fieldId)}
-            onFieldRemove={(field) => updateGroup("education", field, "")}
+            onFieldRemove={(field) => removeFieldFromGroup("education", field)}
           />
         )}
 
@@ -694,11 +839,13 @@ export default function App() {
             onChange={(field, value) => updateGroup("college", field, value)}
             onCopy={copyValue}
             onAddField={() => addCustomFieldToGroup("college")}
+            onRenameField={(field, label) => renameGroupField("college", field, label)}
             onCustomFieldChange={(fieldId, key, value) =>
               updateCustomFieldInGroup("college", fieldId, key, value)
             }
+            onCustomFieldRename={(fieldId, label) => renameCustomFieldInGroup("college", fieldId, label)}
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("college", fieldId)}
-            onFieldRemove={(field) => updateGroup("college", field, "")}
+            onFieldRemove={(field) => removeFieldFromGroup("college", field)}
           />
         )}
 
@@ -710,11 +857,13 @@ export default function App() {
             onChange={(field, value) => updateGroup("governmentIds", field, value)}
             onCopy={copyValue}
             onAddField={() => addCustomFieldToGroup("governmentIds")}
+            onRenameField={(field, label) => renameGroupField("governmentIds", field, label)}
             onCustomFieldChange={(fieldId, key, value) =>
               updateCustomFieldInGroup("governmentIds", fieldId, key, value)
             }
+            onCustomFieldRename={(fieldId, label) => renameCustomFieldInGroup("governmentIds", fieldId, label)}
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("governmentIds", fieldId)}
-            onFieldRemove={(field) => updateGroup("governmentIds", field, "")}
+            onFieldRemove={(field) => removeFieldFromGroup("governmentIds", field)}
           />
         )}
 
@@ -726,11 +875,13 @@ export default function App() {
             onChange={(field, value) => updateGroup("socialLinks", field, value)}
             onCopy={copyValue}
             onAddField={() => addCustomFieldToGroup("socialLinks")}
+            onRenameField={(field, label) => renameGroupField("socialLinks", field, label)}
             onCustomFieldChange={(fieldId, key, value) =>
               updateCustomFieldInGroup("socialLinks", fieldId, key, value)
             }
+            onCustomFieldRename={(fieldId, label) => renameCustomFieldInGroup("socialLinks", fieldId, label)}
             onCustomFieldRemove={(fieldId) => removeCustomFieldFromGroup("socialLinks", fieldId)}
-            onFieldRemove={(field) => updateGroup("socialLinks", field, "")}
+            onFieldRemove={(field) => removeFieldFromGroup("socialLinks", field)}
           />
         )}
 
@@ -751,13 +902,7 @@ export default function App() {
                 <div className="panel-header">
                   <h3>{member.relation}</h3>
                   <div className="inline-actions">
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() => copyValue(JSON.stringify(member, null, 2))}
-                    >
-                      Copy
-                    </button>
+                    <CopyButton value={JSON.stringify(member, null, 2)} onCopy={copyValue} />
                     <label className="ghost-button upload-button">
                       Upload Document
                       <input
@@ -793,19 +938,24 @@ export default function App() {
                     aadhaarNumber: member.aadhaarNumber,
                     panNumber: member.panNumber,
                     notes: member.notes,
+                    fieldLabels: member.fieldLabels,
                     customFields: member.customFields,
                   }}
                   editMode={editMode}
                   onChange={(field, value) => updateListItem("family", member.id, field, value)}
                   onCopy={copyValue}
                   onAddField={() => addCustomFieldToItem("family", member.id)}
+                  onRenameField={(field, label) => renameListItemField("family", member.id, field, label)}
                   onCustomFieldChange={(fieldId, key, value) =>
                     updateCustomFieldInItem("family", member.id, fieldId, key, value)
+                  }
+                  onCustomFieldRename={(fieldId, label) =>
+                    renameCustomFieldInItem("family", member.id, fieldId, label)
                   }
                   onCustomFieldRemove={(fieldId) =>
                     removeCustomFieldFromItem("family", member.id, fieldId)
                   }
-                  onFieldRemove={(field) => updateListItem("family", member.id, field, "")}
+                  onFieldRemove={(field) => removeFieldFromItem("family", member.id, field)}
                 />
                 <div className="subsection-header">
                   <h4>Bank Accounts</h4>
@@ -825,7 +975,11 @@ export default function App() {
                     onChange={(field, value) => updateNestedBank("family", member.id, bank.id, field, value)}
                     onCopy={copyValue}
                     title={bank.bankName || bank.accountHolder || "Bank Account"}
-                    onFieldRemove={(field) => updateNestedBank("family", member.id, bank.id, field, "")}
+                    onRenameField={(field, label) => renameListItemField("family", member.id, field, label)}
+                    onCustomFieldRename={(fieldId, label) =>
+                      renameCustomFieldInItem("family", member.id, fieldId, label)
+                    }
+                    onFieldRemove={(field) => removeNestedBankField("family", member.id, bank.id, field)}
                   />
                 ))}
                 <DocumentList
@@ -856,13 +1010,17 @@ export default function App() {
                 onCopy={copyValue}
                 title={account.bankName || account.accountHolder || "Bank Account"}
                 onAddField={() => addCustomFieldToItem("bankAccounts", account.id)}
+                onRenameField={(field, label) => renameListItemField("bankAccounts", account.id, field, label)}
                 onCustomFieldChange={(fieldId, key, value) =>
                   updateCustomFieldInItem("bankAccounts", account.id, fieldId, key, value)
+                }
+                onCustomFieldRename={(fieldId, label) =>
+                  renameCustomFieldInItem("bankAccounts", account.id, fieldId, label)
                 }
                 onCustomFieldRemove={(fieldId) =>
                   removeCustomFieldFromItem("bankAccounts", account.id, fieldId)
                 }
-                onFieldRemove={(field) => updateListItem("bankAccounts", account.id, field, "")}
+                onFieldRemove={(field) => removeFieldFromItem("bankAccounts", account.id, field)}
               />
             )}
           />
@@ -913,13 +1071,17 @@ export default function App() {
                   onCopy={copyValue}
                   title={certificate.name || "Certificate"}
                   onAddField={() => addCustomFieldToItem("certificates", certificate.id)}
+                  onRenameField={(field, label) => renameListItemField("certificates", certificate.id, field, label)}
                   onCustomFieldChange={(fieldId, key, value) =>
                     updateCustomFieldInItem("certificates", certificate.id, fieldId, key, value)
+                  }
+                  onCustomFieldRename={(fieldId, label) =>
+                    renameCustomFieldInItem("certificates", certificate.id, fieldId, label)
                   }
                   onCustomFieldRemove={(fieldId) =>
                     removeCustomFieldFromItem("certificates", certificate.id, fieldId)
                   }
-                  onFieldRemove={(field) => updateListItem("certificates", certificate.id, field, "")}
+                  onFieldRemove={(field) => removeFieldFromItem("certificates", certificate.id, field)}
                 />
                 <label className="ghost-button upload-button">
                   Upload Certificate File
@@ -946,33 +1108,138 @@ export default function App() {
           />
         )}
 
-        {activeSection === "achievements" && (
-          <RepeatableSection
-            title="Achievements"
-            items={vault.achievements}
-            addLabel="Add Achievement"
-            onAdd={() => addListItem("achievements", createAchievement)}
-            onRemove={(itemId) => removeListItem("achievements", itemId)}
-            onCopy={copyValue}
-            editMode={editMode}
-            renderItem={(achievement) => (
-              <ItemSection
-                data={achievement}
-                editMode={editMode}
-                onChange={(field, value) => updateListItem("achievements", achievement.id, field, value)}
-                onCopy={copyValue}
-                title={achievement.title || "Achievement"}
-                onAddField={() => addCustomFieldToItem("achievements", achievement.id)}
-                onCustomFieldChange={(fieldId, key, value) =>
-                  updateCustomFieldInItem("achievements", achievement.id, fieldId, key, value)
-                }
-                onCustomFieldRemove={(fieldId) =>
-                  removeCustomFieldFromItem("achievements", achievement.id, fieldId)
-                }
-                onFieldRemove={(field) => updateListItem("achievements", achievement.id, field, "")}
-              />
-            )}
-          />
+        {activeSection === "others" && (
+          <section className="section-stack">
+            <div className="subsection-header">
+              <h3>Others</h3>
+              <button className="primary-button" type="button" onClick={addOtherSection}>
+                Add Section
+              </button>
+            </div>
+            {vault.others.map((section, sectionIndex) => (
+              <article className="panel" key={section.id}>
+                <div className="panel-header">
+                  {editMode ? (
+                    <input
+                      className="field-label-input"
+                      defaultValue={section.title}
+                      placeholder={`Section ${sectionIndex + 1}`}
+                      onBlur={(event) => renameOtherSectionField(section.id, "title", event.target.value)}
+                    />
+                  ) : (
+                    <h4>{section.title || `Section ${sectionIndex + 1}`}</h4>
+                  )}
+                  <div className="inline-actions">
+                    <CopyButton value={JSON.stringify(section, null, 2)} onCopy={copyValue} />
+                    <label className="ghost-button upload-button">
+                      Upload Document
+                      <input
+                        type="file"
+                        hidden
+                        onChange={(event) =>
+                          handleFileUpload(event, {
+                            kind: "otherSection",
+                            category: section.title || "Other section document",
+                            linkedTo: section.id,
+                          })
+                        }
+                      />
+                    </label>
+                    {editMode ? (
+                      <button
+                        className="icon-button danger"
+                        type="button"
+                        onClick={() => removeOtherSection(section.id)}
+                      >
+                        🗑
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="section-stack">
+                  <div className="subsection-header compact">
+                    <h4>Subsections</h4>
+                    <button className="ghost-button" type="button" onClick={() => addOtherSubsection(section.id)}>
+                      Add Subsection
+                    </button>
+                  </div>
+
+                  {section.subsections.map((subsection, subsectionIndex) => (
+                    <article className="panel" key={subsection.id}>
+                      <div className="panel-header">
+                        {editMode ? (
+                          <input
+                            className="field-label-input"
+                            defaultValue={subsection.title}
+                            placeholder={`Subsection ${subsectionIndex + 1}`}
+                            onBlur={(event) =>
+                              renameOtherSubsectionField(section.id, subsection.id, "title", event.target.value)
+                            }
+                          />
+                        ) : (
+                          <h5>{subsection.title || `Subsection ${subsectionIndex + 1}`}</h5>
+                        )}
+                        <div className="inline-actions">
+                          <CopyButton value={JSON.stringify(subsection, null, 2)} onCopy={copyValue} />
+                          <label className="ghost-button upload-button">
+                            Upload Document
+                            <input
+                              type="file"
+                              hidden
+                              onChange={(event) =>
+                                handleFileUpload(event, {
+                                  kind: "otherSubsection",
+                                  category: subsection.title || "Other subsection document",
+                                  linkedTo: subsection.id,
+                                })
+                              }
+                            />
+                          </label>
+                          {editMode ? (
+                            <button
+                              className="icon-button danger"
+                              type="button"
+                              onClick={() => removeOtherSubsection(section.id, subsection.id)}
+                            >
+                              🗑
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="subsection-header compact">
+                        <span />
+                        <button className="ghost-button" type="button" onClick={() => addOtherField(section.id, subsection.id)}>
+                          Add Field
+                        </button>
+                      </div>
+                      <CustomFields
+                        fields={subsection.fields}
+                        editMode={editMode}
+                        onCopy={copyValue}
+                        onChange={(fieldId, key, value) =>
+                          updateOtherField(section.id, subsection.id, fieldId, key, value)
+                        }
+                        onRenameField={(fieldId, label) =>
+                          updateOtherField(section.id, subsection.id, fieldId, "label", label)
+                        }
+                        onRemove={(fieldId) => removeOtherField(section.id, subsection.id, fieldId)}
+                      />
+                      <DocumentList
+                        documents={vault.documents.filter((entry) =>
+                          (section.documentIds || []).includes(entry.id) ||
+                          (subsection.documentIds || []).includes(entry.id)
+                        )}
+                        onDownload={handleDownload}
+                        onDelete={removeDocument}
+                        editMode={editMode}
+                      />
+                    </article>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </section>
         )}
 
       </main>
@@ -987,7 +1254,9 @@ function ObjectSection({
   onChange,
   onCopy,
   onAddField,
+  onRenameField,
   onCustomFieldChange,
+  onCustomFieldRename,
   onCustomFieldRemove,
   onFieldRemove,
 }) {
@@ -1005,13 +1274,14 @@ function ObjectSection({
         onChange={onChange}
         onCopy={onCopy}
         onRemoveField={onFieldRemove}
-        ultraEditMode={false}
+        onRenameField={onRenameField}
       />
       <CustomFields
         fields={data.customFields || []}
         editMode={editMode}
         onCopy={onCopy}
         onChange={onCustomFieldChange}
+        onRenameField={onCustomFieldRename}
         onRemove={onCustomFieldRemove}
       />
     </section>
@@ -1025,10 +1295,11 @@ function ItemSection({
   onChange,
   onCopy,
   onAddField,
+  onRenameField,
   onCustomFieldChange,
+  onCustomFieldRename,
   onCustomFieldRemove,
   onFieldRemove,
-  ultraEditMode,
 }) {
   return (
     <section className="section-stack">
@@ -1048,7 +1319,7 @@ function ItemSection({
         onChange={onChange}
         onCopy={onCopy}
         onRemoveField={onFieldRemove}
-        ultraEditMode={ultraEditMode}
+        onRenameField={onRenameField}
       />
       {onAddField ? (
         <CustomFields
@@ -1056,6 +1327,7 @@ function ItemSection({
           editMode={editMode}
           onCopy={onCopy}
           onChange={onCustomFieldChange}
+          onRenameField={onCustomFieldRename}
           onRemove={onCustomFieldRemove}
         />
       ) : null}
@@ -1063,42 +1335,29 @@ function ItemSection({
   );
 }
 
-function FieldGrid({ data, editMode, onChange, onCopy, onRemoveField }) {
+function FieldGrid({ data, editMode, onChange, onCopy, onRemoveField, onRenameField }) {
   return (
     <div className="field-grid">
       {Object.entries(data)
-        .filter(([field]) => field !== "customFields")
+        .filter(([field]) => !["customFields", "fieldLabels", "documentIds", "subsections"].includes(field))
         .map(([field, value]) => (
-        <label className="field-card" key={field}>
-          <div className="field-header">
-            <span>{toLabel(field)}</span>
-            {editMode ? (
-              <button className="icon-button danger" type="button" onClick={() => onRemoveField?.(field)}>
-                🗑
-              </button>
-            ) : null}
-          </div>
-          <div className="field-row">
-            {editMode ? (
-              <textarea
-                rows={String(value ?? "").length > 60 ? 4 : 1}
-                value={String(value ?? "")}
-                onChange={(event) => onChange(field, event.target.value)}
-              />
-            ) : (
-              <div className="field-value">{String(value || "Not set")}</div>
-            )}
-            <button className="copy-button" type="button" onClick={() => onCopy(value)}>
-              Copy
-            </button>
-          </div>
-        </label>
-      ))}
+          <FieldCard
+            key={field}
+            field={field}
+            value={value}
+            editMode={editMode}
+            label={data.fieldLabels?.[field] ?? toLabel(field)}
+            onChange={onChange}
+            onCopy={onCopy}
+            onRemoveField={onRemoveField}
+            onRenameField={onRenameField}
+          />
+        ))}
     </div>
   );
 }
 
-function CustomFields({ fields, editMode, onCopy, onChange, onRemove }) {
+function CustomFields({ fields, editMode, onCopy, onChange, onRenameField, onRemove }) {
   if (!fields.length) {
     return null;
   }
@@ -1106,38 +1365,15 @@ function CustomFields({ fields, editMode, onCopy, onChange, onRemove }) {
   return (
     <div className="field-grid">
       {fields.map((field) => (
-        <article className="field-card" key={field.id}>
-          <div className="custom-field-header">
-            {editMode ? (
-              <input
-                className="custom-label-input"
-                value={field.label}
-                onChange={(event) => onChange(field.id, "label", event.target.value)}
-              />
-            ) : (
-              <span>{field.label || "Custom field"}</span>
-            )}
-            {editMode ? (
-              <button className="icon-button danger" type="button" onClick={() => onRemove(field.id)}>
-                🗑
-              </button>
-            ) : null}
-          </div>
-          <div className="field-row">
-            {editMode ? (
-              <textarea
-                rows={String(field.value ?? "").length > 60 ? 4 : 1}
-                value={String(field.value ?? "")}
-                onChange={(event) => onChange(field.id, "value", event.target.value)}
-              />
-            ) : (
-              <div className="field-value">{String(field.value || "Not set")}</div>
-            )}
-            <button className="copy-button" type="button" onClick={() => onCopy(field.value)}>
-              Copy
-            </button>
-          </div>
-        </article>
+        <CustomFieldCard
+          key={field.id}
+          field={field}
+          editMode={editMode}
+          onCopy={onCopy}
+          onChange={onChange}
+          onRenameField={onRenameField}
+          onRemove={onRemove}
+        />
       ))}
     </div>
   );
@@ -1159,9 +1395,7 @@ function RepeatableSection({ title, items, addLabel, onAdd, onRemove, onCopy, re
               {title} {index + 1}
             </h4>
             <div className="inline-actions">
-              <button className="ghost-button" type="button" onClick={() => onCopy(JSON.stringify(item, null, 2))}>
-                Copy
-              </button>
+              <CopyButton value={JSON.stringify(item, null, 2)} onCopy={onCopy} />
               {editMode ? (
                 <button className="icon-button danger" type="button" onClick={() => onRemove(item.id)}>
                   🗑
@@ -1205,6 +1439,162 @@ function DocumentList({ documents, onDownload, onDelete, editMode }) {
       ))}
     </div>
   );
+}
+
+function FieldCard({ field, value, label, editMode, onChange, onCopy, onRemoveField, onRenameField }) {
+  const [labelDraft, setLabelDraft] = useState(label);
+  const [valueDraft, setValueDraft] = useState(String(value ?? ""));
+
+  useEffect(() => {
+    setLabelDraft(label);
+  }, [label]);
+
+  useEffect(() => {
+    setValueDraft(String(value ?? ""));
+  }, [value]);
+
+  function commitValue() {
+    if (String(value ?? "") !== valueDraft) {
+      onChange(field, valueDraft);
+    }
+  }
+
+  function commitLabel() {
+    if (onRenameField && labelDraft !== label) {
+      onRenameField(field, labelDraft);
+    }
+  }
+
+  return (
+    <label className="field-card">
+      <div className="field-header">
+        {editMode ? (
+          <input
+            className="field-label-input"
+            value={labelDraft}
+            onChange={(event) => setLabelDraft(event.target.value)}
+            onBlur={commitLabel}
+          />
+        ) : (
+          <span>{label}</span>
+        )}
+        {editMode ? (
+          <button className="icon-button danger" type="button" onClick={() => onRemoveField?.(field)}>
+            🗑
+          </button>
+        ) : null}
+      </div>
+      <div className="field-row">
+        {editMode ? (
+          <textarea
+            rows={String(valueDraft).length > 60 ? 4 : 1}
+            value={valueDraft}
+            onChange={(event) => setValueDraft(event.target.value)}
+            onBlur={commitValue}
+          />
+        ) : (
+          <div className="field-value">{String(value || "Not set")}</div>
+        )}
+        <CopyButton value={value} onCopy={onCopy} />
+      </div>
+    </label>
+  );
+}
+
+function CustomFieldCard({ field, editMode, onCopy, onChange, onRenameField, onRemove }) {
+  const [labelDraft, setLabelDraft] = useState(field.label || "");
+  const [valueDraft, setValueDraft] = useState(String(field.value ?? ""));
+
+  useEffect(() => {
+    setLabelDraft(field.label || "");
+  }, [field.label]);
+
+  useEffect(() => {
+    setValueDraft(String(field.value ?? ""));
+  }, [field.value]);
+
+  function commitLabel() {
+    if (onRenameField && labelDraft !== field.label) {
+      onRenameField(field.id, labelDraft);
+    }
+  }
+
+  function commitValue() {
+    if (valueDraft !== String(field.value ?? "")) {
+      onChange(field.id, "value", valueDraft);
+    }
+  }
+
+  return (
+    <article className="field-card">
+      <div className="custom-field-header">
+        {editMode ? (
+          <input
+            className="custom-label-input"
+            value={labelDraft}
+            onChange={(event) => setLabelDraft(event.target.value)}
+            onBlur={commitLabel}
+          />
+        ) : (
+          <span>{field.label || "Custom field"}</span>
+        )}
+        {editMode ? (
+          <button className="icon-button danger" type="button" onClick={() => onRemove(field.id)}>
+            🗑
+          </button>
+        ) : null}
+      </div>
+      <div className="field-row">
+        {editMode ? (
+          <textarea
+            rows={String(valueDraft).length > 60 ? 4 : 1}
+            value={valueDraft}
+            onChange={(event) => setValueDraft(event.target.value)}
+            onBlur={commitValue}
+          />
+        ) : (
+          <div className="field-value">{String(field.value || "Not set")}</div>
+        )}
+        <CopyButton value={field.value} onCopy={onCopy} />
+      </div>
+    </article>
+  );
+}
+
+function CopyButton({ value, onCopy, label = "Copy" }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
+      }
+    },
+    [],
+  );
+
+  async function handleClick() {
+    if (copied) {
+      return;
+    }
+
+    await onCopy(value);
+    setCopied(true);
+    timerRef.current = window.setTimeout(() => {
+      setCopied(false);
+    }, 1000);
+  }
+
+  return (
+    <button className="copy-button" type="button" onClick={handleClick} disabled={copied}>
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+function Toast({ message, type }) {
+  return <div className={`toast toast-${type}`}>{message}</div>;
 }
 
 function toLabel(value) {

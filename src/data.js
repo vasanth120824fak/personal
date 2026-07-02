@@ -30,11 +30,12 @@ export const createDefaultVault = () => ({
     nationality: "Indian",
     religion: "",
     maritalStatus: "Single",
+    fieldLabels: {},
     customFields: [],
   },
   family: [
     {
-      id: crypto.randomUUID(),
+      id: createNumericId(),
       relation: "Father",
       name: "",
       mobile: "",
@@ -44,10 +45,11 @@ export const createDefaultVault = () => ({
       notes: "",
       bankAccounts: [createBankAccount()],
       documentIds: [],
+      fieldLabels: {},
       customFields: [],
     },
     {
-      id: crypto.randomUUID(),
+      id: createNumericId(),
       relation: "Mother",
       name: "",
       mobile: "",
@@ -57,10 +59,11 @@ export const createDefaultVault = () => ({
       notes: "",
       bankAccounts: [createBankAccount()],
       documentIds: [],
+      fieldLabels: {},
       customFields: [],
     },
     {
-      id: crypto.randomUUID(),
+      id: createNumericId(),
       relation: "Sister",
       name: "",
       mobile: "",
@@ -70,6 +73,7 @@ export const createDefaultVault = () => ({
       notes: "",
       bankAccounts: [createBankAccount()],
       documentIds: [],
+      fieldLabels: {},
       customFields: [],
     },
   ],
@@ -81,6 +85,7 @@ export const createDefaultVault = () => ({
     collegeAddress: "",
     homeAddress: "",
     pincode: "638401",
+    fieldLabels: {},
     customFields: [],
   },
   education: {
@@ -92,6 +97,7 @@ export const createDefaultVault = () => ({
     cgpa: "",
     batch: "",
     graduationYear: "",
+    fieldLabels: {},
     customFields: [],
   },
   college: {
@@ -101,6 +107,7 @@ export const createDefaultVault = () => ({
     semester: "",
     hostel: "",
     studentId: "",
+    fieldLabels: {},
     customFields: [],
   },
   governmentIds: {
@@ -109,6 +116,7 @@ export const createDefaultVault = () => ({
     drivingLicence: "",
     passport: "",
     voterId: "",
+    fieldLabels: {},
     customFields: [],
   },
   socialLinks: {
@@ -119,6 +127,7 @@ export const createDefaultVault = () => ({
     hackerRank: "",
     codeChef: "",
     codeforces: "",
+    fieldLabels: {},
     customFields: [],
   },
   bankAccounts: [createBankAccount()],
@@ -129,7 +138,7 @@ export const createDefaultVault = () => ({
 
 export function createFamilyMember(relation = "Family Member") {
   return {
-    id: crypto.randomUUID(),
+    id: createNumericId(),
     relation,
     name: "",
     mobile: "",
@@ -139,13 +148,14 @@ export function createFamilyMember(relation = "Family Member") {
     notes: "",
     bankAccounts: [createBankAccount()],
     documentIds: [],
+    fieldLabels: {},
     customFields: [],
   };
 }
 
 export function createBankAccount() {
   return {
-    id: crypto.randomUUID(),
+    id: createNumericId(),
     bankName: "",
     accountHolder: "",
     accountNumber: "",
@@ -153,6 +163,7 @@ export function createBankAccount() {
     micr: "",
     cusId: "",
     branch: "",
+    fieldLabels: {},
     customFields: [],
   };
 }
@@ -172,6 +183,7 @@ export function createCertificate() {
     name: "",
     issuer: "",
     documentId: "",
+    fieldLabels: {},
     customFields: [],
   };
 }
@@ -181,6 +193,8 @@ export function createOtherSection() {
     id: createNumericId(),
     title: "",
     subsections: [createOtherSubsection()],
+    documentIds: [],
+    fieldLabels: {},
   };
 }
 
@@ -190,6 +204,7 @@ export function createOtherSubsection() {
     title: "",
     fields: [createCustomField("Field name", "")],
     documentIds: [],
+    fieldLabels: {},
   };
 }
 
