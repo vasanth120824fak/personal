@@ -2,7 +2,7 @@ import jwt from "jsonwebtoken";
 import { ObjectId } from "mongodb";
 
 const COOKIE_NAME = "vault_session";
-const SEVEN_DAYS = 60 * 60 * 24 * 7;
+const THIRTY_MINUTES = 60 * 30;
 
 export function getJwtSecret() {
   const secret = process.env.JWT_SECRET;
@@ -19,7 +19,7 @@ export function signSession(user) {
       email: user.email,
     },
     getJwtSecret(),
-    { expiresIn: SEVEN_DAYS },
+    { expiresIn: THIRTY_MINUTES },
   );
 }
 
@@ -36,7 +36,7 @@ export function parseCookies(event) {
 }
 
 export function buildSessionCookie(token) {
-  return `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${SEVEN_DAYS}`;
+  return `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${THIRTY_MINUTES}`;
 }
 
 export function clearSessionCookie() {

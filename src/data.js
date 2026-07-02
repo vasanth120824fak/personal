@@ -8,9 +8,16 @@ export const sectionLabels = {
   socialLinks: "Social Media",
   bankAccounts: "Bank Details",
   documents: "Documents",
-  achievements: "Achievements",
   certificates: "Certificates",
+  others: "Others",
 };
+
+let numericSeed = 100;
+
+export function createNumericId() {
+  numericSeed += 1;
+  return numericSeed;
+}
 
 export const createDefaultVault = () => ({
   personalInfo: {
@@ -116,8 +123,8 @@ export const createDefaultVault = () => ({
   },
   bankAccounts: [createBankAccount()],
   documents: [],
-  achievements: [createAchievement()],
   certificates: [createCertificate()],
+  others: [createOtherSection()],
 });
 
 export function createFamilyMember(relation = "Family Member") {
@@ -152,7 +159,7 @@ export function createBankAccount() {
 
 export function createAchievement() {
   return {
-    id: crypto.randomUUID(),
+    id: createNumericId(),
     title: "",
     description: "",
     customFields: [],
@@ -161,7 +168,7 @@ export function createAchievement() {
 
 export function createCertificate() {
   return {
-    id: crypto.randomUUID(),
+    id: createNumericId(),
     name: "",
     issuer: "",
     documentId: "",
@@ -169,9 +176,26 @@ export function createCertificate() {
   };
 }
 
+export function createOtherSection() {
+  return {
+    id: createNumericId(),
+    title: "",
+    subsections: [createOtherSubsection()],
+  };
+}
+
+export function createOtherSubsection() {
+  return {
+    id: createNumericId(),
+    title: "",
+    fields: [createCustomField("Field name", "")],
+    documentIds: [],
+  };
+}
+
 export function createCustomField(label = "", value = "") {
   return {
-    id: crypto.randomUUID(),
+    id: createNumericId(),
     label,
     value,
   };

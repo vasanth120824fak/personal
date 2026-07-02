@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   createCustomField,
-  createAchievement,
   createBankAccount,
   createCertificate,
   createDefaultVault,
   createFamilyMember,
+  createOtherSection,
+  createOtherSubsection,
   sectionLabels,
 } from "./data";
 import {
@@ -32,9 +33,11 @@ export default function App() {
   const [editMode, setEditMode] = useState(false);
   const [status, setStatus] = useState("");
   const [busyText, setBusyText] = useState("");
+  const [ultraEditMode, setUltraEditMode] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sessionExpiresAt, setSessionExpiresAt] = useState(null);
 
   useEffect(() => {
     async function bootstrap() {
@@ -44,6 +47,7 @@ export default function App() {
         setUserEmail(session.email);
         setEmail(session.email);
         setVault(payload.vault || createDefaultVault());
+        setSessionExpiresAt(Date.now() + 30 * 60 * 1000);
       } catch {
         setVault(null);
       } finally {
@@ -53,6 +57,18 @@ export default function App() {
 
     bootstrap();
   }, []);
+
+  useEffect(() => {
+    if (!sessionExpiresAt) {
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(() => {
+      handleLogout();
+    }, Math.max(sessionExpiresAt - Date.now(), 0));
+
+    return () => window.clearTimeout(timeout);
+  }, [sessionExpiresAt]);
 
   const searchResults = useMemo(() => {
     if (!vault || !search.trim()) {
@@ -82,6 +98,7 @@ export default function App() {
       setUserEmail(normalizedEmail);
       setEmail(normalizedEmail);
       setPin("");
+      setSessionExpiresAt(Date.now() + 30 * 60 * 1000);
       setStatus("Signed in.");
     } catch (error) {
       setStatus(error.message || "Authentication failed.");
@@ -114,6 +131,15 @@ export default function App() {
         ...vault[group],
         [field]: value,
       },
+    });
+  }
+
+  function removeFieldFromGroup(group, field) {
+    const nextGroup = { ...vault[group] };
+    delete nextGroup[field];
+    persistVault({
+      ...vault,
+      [group]: nextGroup,
     });
   }
 
@@ -202,6 +228,21 @@ export default function App() {
     });
   }
 
+  function removeFieldFromItem(group, itemId, field) {
+    persistVault({
+      ...vault,
+      [group]: vault[group].map((item) => {
+        if (item.id !== itemId) {
+          return item;
+        }
+
+        const nextItem = { ...item };
+        delete nextItem[field];
+        return nextItem;
+      }),
+    });
+  }
+
   function addListItem(group, factory) {
     persistVault({
       ...vault,
@@ -241,6 +282,135 @@ export default function App() {
         item.id === ownerId
           ? { ...item, bankAccounts: [...item.bankAccounts, createBankAccount()] }
           : item,
+      ),
+    });
+  }
+
+  function updateOtherSection(sectionId, field, value) {
+    persistVault({
+      ...vault,
+      others: vault.others.map((section) =>
+        section.id === sectionId ? { ...section, [field]: value } : section,
+      ),
+    });
+  }
+
+  function removeOtherSection(sectionId) {
+    persistVault({
+      ...vault,
+      others: vault.others.filter((section) => section.id !== sectionId),
+    });
+  }
+
+  function addOtherSection() {
+    persistVault({
+      ...vault,
+      others: [...vault.others, createOtherSection()],
+    });
+  }
+
+  function addOtherSubsection(sectionId) {
+    persistVault({
+      ...vault,
+      others: vault.others.map((section) =>
+        section.id === sectionId
+          ? { ...section, subsections: [...section.subsections, createOtherSubsection()] }
+          : section,
+      ),
+    });
+  }
+
+  function updateOtherSubsection(sectionId, subsectionId, field, value) {
+    persistVault({
+      ...vault,
+      others: vault.others.map((section) =>
+        section.id === sectionId
+          ? {
+              ...section,
+              subsections: section.subsections.map((subsection) =>
+                subsection.id === subsectionId ? { ...subsection, [field]: value } : subsection,
+              ),
+            }
+          : section,
+      ),
+    });
+  }
+
+  function removeOtherSubsection(sectionId, subsectionId) {
+    persistVault({
+      ...vault,
+      others: vault.others.map((section) =>
+        section.id === sectionId
+          ? {
+              ...section,
+              subsections: section.subsections.filter((subsection) => subsection.id !== subsectionId),
+            }
+          : section,
+      ),
+    });
+  }
+
+  function addOtherField(sectionId, subsectionId) {
+    persistVault({
+      ...vault,
+      others: vault.others.map((section) =>
+        section.id === sectionId
+          ? {
+              ...section,
+              subsections: section.subsections.map((subsection) =>
+                subsection.id === subsectionId
+                  ? {
+                      ...subsection,
+                      fields: [...subsection.fields, createCustomField("Field name", "")],
+                    }
+                  : subsection,
+              ),
+            }
+          : section,
+      ),
+    });
+  }
+
+  function updateOtherField(sectionId, subsectionId, fieldId, key, value) {
+    persistVault({
+      ...vault,
+      others: vault.others.map((section) =>
+        section.id === sectionId
+          ? {
+              ...section,
+              subsections: section.subsections.map((subsection) =>
+                subsection.id === subsectionId
+                  ? {
+                      ...subsection,
+                      fields: subsection.fields.map((field) =>
+                        field.id === fieldId ? { ...field, [key]: value } : field,
+                      ),
+                    }
+                  : subsection,
+              ),
+            }
+          : section,
+      ),
+    });
+  }
+
+  function removeOtherField(sectionId, subsectionId, fieldId) {
+    persistVault({
+      ...vault,
+      others: vault.others.map((section) =>
+        section.id === sectionId
+          ? {
+              ...section,
+              subsections: section.subsections.map((subsection) =>
+                subsection.id === subsectionId
+                  ? {
+                      ...subsection,
+                      fields: subsection.fields.filter((field) => field.id !== fieldId),
+                    }
+                  : subsection,
+              ),
+            }
+          : section,
       ),
     });
   }
@@ -359,6 +529,7 @@ export default function App() {
     setSearch("");
     setStatus("Signed out.");
     setBusyText("");
+    setSessionExpiresAt(null);
   }
 
   if (loading) {
@@ -446,6 +617,9 @@ export default function App() {
           <div className="topbar-actions">
             <button className="ghost-button" type="button" onClick={() => setEditMode((value) => !value)}>
               {editMode ? "View Mode" : "Edit Mode"}
+            </button>
+            <button className="ghost-button" type="button" onClick={() => setUltraEditMode((value) => !value)}>
+              {ultraEditMode ? "Ultra On" : "Ultra Edit"}
             </button>
             <button
               className="ghost-button"
@@ -831,6 +1005,7 @@ function ObjectSection({
         onChange={onChange}
         onCopy={onCopy}
         onRemoveField={onFieldRemove}
+        ultraEditMode={false}
       />
       <CustomFields
         fields={data.customFields || []}
@@ -853,6 +1028,7 @@ function ItemSection({
   onCustomFieldChange,
   onCustomFieldRemove,
   onFieldRemove,
+  ultraEditMode,
 }) {
   return (
     <section className="section-stack">
@@ -872,6 +1048,7 @@ function ItemSection({
         onChange={onChange}
         onCopy={onCopy}
         onRemoveField={onFieldRemove}
+        ultraEditMode={ultraEditMode}
       />
       {onAddField ? (
         <CustomFields
