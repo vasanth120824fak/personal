@@ -940,6 +940,7 @@ export default function App() {
                   </div>
                 </div>
                 <ItemSection
+                  title="Details"
                   data={{
                     name: member.name,
                     mobile: member.mobile,
