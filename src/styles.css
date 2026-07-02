@@ -179,6 +179,7 @@ button {
 .content {
   height: calc(100vh - 40px);
   overflow: auto;
+  padding-top: 0;
 }
 
 .nav-item {
@@ -218,7 +219,8 @@ button {
   position: sticky;
   top: 0;
   z-index: 40;
-  padding: 10px 0 8px;
+  margin-top: 0;
+  padding: 12px 0 8px;
   background: linear-gradient(180deg, rgba(247, 243, 235, 0.98), rgba(247, 243, 235, 0.88));
   backdrop-filter: blur(10px);
 }
@@ -368,6 +370,10 @@ p {
     border-radius: 18px;
     height: auto;
     overflow: visible;
+  }
+
+  .content {
+    padding-top: 0;
   }
 
   .topbar,
